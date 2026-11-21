@@ -1,0 +1,14 @@
+/*++
+    BC250Display.rc - version information (based on Microsoft KMDOD sample)
+--*/
+#include <windows.h>
+#include <ntverp.h>
+
+#define VER_FILETYPE                VFT_DRV
+#define VER_FILESUBTYPE             VFT2_DRV_DISPLAY
+#define VER_FILEDESCRIPTION_STR     "AMD BC-250 Display-Only Driver (community, KMDOD-based)"
+#define VER_INTERNALNAME_STR        "BC250Display.sys"
+#define VER_ORIGINALFILENAME_STR    "BC250Display.sys"
+
+#define VER_LANGNEUTRAL
+#include "common.ver"

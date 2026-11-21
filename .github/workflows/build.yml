@@ -1,0 +1,25 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        configuration: [Release, Debug]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build driver (WDK via NuGet)
+        shell: pwsh
+        run: ./scripts/build.ps1 -Configuration ${{ matrix.configuration }}
+
+      - name: Upload driver package
+        uses: actions/upload-artifact@v4
+        with:
+          name: BC250Display-${{ matrix.configuration }}
+          path: out/${{ matrix.configuration }}/

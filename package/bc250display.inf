@@ -1,0 +1,59 @@
+;
+; BC250Display.inf
+; WDDM display-only driver for the AMD BC-250 (Cyan Skillfish APU).
+; Based on the Microsoft KMDOD sample (MS-PL).
+;
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = Display
+ClassGUID   = {4d36e968-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderString%
+DriverVer   = 11/21/2026,0.1.0.0
+CatalogFile = BC250Display.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+BC250.Files = 13
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+BC250Display.sys = 1
+
+[Manufacturer]
+%ManufacturerName% = BC250, NTamd64.10.0
+
+[BC250.NTamd64.10.0]
+%DeviceName% = BC250_Inst, PCI\VEN_1002&DEV_13FE
+%DeviceName% = BC250_Inst, PCI\VEN_1002&DEV_143F
+
+[BC250_Inst]
+FeatureScore = F8
+CopyFiles    = BC250.Files
+
+[BC250_Inst.Services]
+AddService = BC250Display, 0x00000002, BC250_Service_Inst, BC250_EventLog_Inst
+
+[BC250_Service_Inst]
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 0               ; SERVICE_ERROR_IGNORE
+ServiceBinary = %13%\BC250Display.sys
+
+[BC250.Files]
+BC250Display.sys
+
+[BC250_EventLog_Inst]
+AddReg = BC250_EventLog_Inst.AddReg
+
+[BC250_EventLog_Inst.AddReg]
+HKR,,EventMessageFile,0x00020000,"%%SystemRoot%%\System32\IoLogMsg.dll"
+HKR,,TypesSupported,0x00010001,7
+
+[Strings]
+ProviderString   = "BC-250 Community"
+ManufacturerName = "AMD (community driver)"
+DiskName         = "BC-250 Display Driver Disk"
+DeviceName       = "AMD BC-250 Display-Only Adapter"
