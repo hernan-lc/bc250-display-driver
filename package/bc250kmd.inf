@@ -16,12 +16,14 @@ PnpLockdown = 1
 
 [DestinationDirs]
 BC250Kmd.Files = 13
+BC250Kmd.UmdFiles = 11
 
 [SourceDisksNames]
 1 = %DiskName%
 
 [SourceDisksFiles]
 BC250Kmd.sys = 1
+bc250umd.dll = 1
 
 [Manufacturer]
 %ManufacturerName% = BC250Kmd, NTamd64.10.0...16299
@@ -32,10 +34,8 @@ BC250Kmd.sys = 1
 
 [BC250Kmd_Inst]
 FeatureScore = FA
-CopyFiles    = BC250Kmd.Files
-; No UserModeDriverName: bc250umd.dll does not exist. Declaring a fake UMD makes
-; dxgkrnl fail adapter start and, with NOVGA, leaves the machine with no display.
-; Keep the desktop on BasicDisplay/software composition until a real UMD exists.
+CopyFiles    = BC250Kmd.Files, BC250Kmd.UmdFiles
+AddReg       = BC250Kmd_Umd.AddReg
 
 [BC250Kmd_Inst.HW]
 AddReg = BC250Kmd_Msi.AddReg
@@ -56,6 +56,15 @@ ServiceBinary = %13%\BC250Kmd.sys
 
 [BC250Kmd.Files]
 BC250Kmd.sys
+
+[BC250Kmd.UmdFiles]
+bc250umd.dll
+
+[BC250Kmd_Umd.AddReg]
+; dxgkrnl requires a registered UMD for render-capable adapters. bc250umd.dll is a real
+; (stub) DLL installed to System32: D3D runtimes get E_NOTIMPL and fall back to WARP.
+HKR,,UserModeDriverName,0x00010000,bc250umd.dll
+HKR,,UserModeDriverNameWow,0x00010000,bc250umd.dll
 
 [BC250Kmd_EventLog_Inst]
 AddReg = BC250Kmd_EventLog_Inst.AddReg

@@ -62,6 +62,7 @@ function New-DriverPackage([string]$Name, [string]$SysDir, [string]$InfName, [st
   $infSrc = Get-ChildItem -Recurse $SysDir -Filter $InfName | Select-Object -First 1
   if (-not $infSrc) { $infSrc = Get-Item (Join-Path $root "package\$InfName") }
   Copy-Item $infSrc.FullName (Join-Path $Dest "$Name.inf") -Force
+  if ($Name -eq 'BC250Kmd') { Copy-Item (Join-Path $bin 'bc250umd.dll') $Dest -Force }   # UMD stub, listed in the catalog
   & $signtool sign /fd sha256 /sha1 $cert.Thumbprint /s My "$Dest\$Name.sys"
   if ($LASTEXITCODE -ne 0) { throw "signtool ($Name.sys) failed" }
   # Catalog for Windows 10 1709+ and Windows 11 (the INFs require 10.0.16299+)

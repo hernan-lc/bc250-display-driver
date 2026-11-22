@@ -37,6 +37,8 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <PropertyGroup>
     <IntDir>$(Platform)\$(Configuration)\kmd\</IntDir>
+    <!-- scripts\build.ps1 builds and signs the catalog (it also includes bc250umd.dll) -->
+    <EnableInf2cat>false</EnableInf2cat>
     <OutDir>$(IntDir)</OutDir>
   </PropertyGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
