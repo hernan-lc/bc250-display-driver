@@ -4,20 +4,33 @@ Legend: **code** = written and builds (locally and in CI); **HW-tested** = verif
 Nothing past M1 runs unless you ask for it (`bc250ctl` with `DeveloperMode`, or by installing the
 experimental `BC250Kmd` driver), so a fresh install of `BC250Display` behaves like a display-only driver.
 
-| # | Milestone | Code | HW-tested | How to test |
+| # | Milestone | Code | HW-tested on a BC-250 | How to test |
 |---|---|---|---|---|
 | 0 | Display-only on the GOP framebuffer (`BC250Display.sys`) | ✅ | ✅ 1920×1080 | `install.ps1` |
-| M1 | BAR5 registers, memory layout, SMU version, GFX clock | ✅ | ❌ | `bc250ctl info` |
-| M2 | IH ring 0 + ISR (line interrupts) | ✅ | ❌ | `bc250ctl fulltest` |
-| M3 | GCVM VMID0: system aperture + flat 256 MiB GART | ✅ | ❌ | `bc250ctl fulltest` |
-| M4 | SDMA0: direct microcode load, ring, WRITE_LINEAR / FENCE / TRAP | ✅ | ❌ | `bc250ctl fulltest` |
-| M4b | RLC + CP graphics ring (PFP/ME/CE via instruction cache), clear state, PM4 tests | ✅ | ❌ | `bc250ctl fulltest` |
-| M5a | Indirect buffers + fences; GPU fill into the scanout | ✅ | ❌ | `bc250ctl submit-test`, `fill-rect` |
-| M5b | `BC250Kmd.sys`: full WDDM 1.2 driver (segments, allocations, paging via SDMA, 2 nodes, Present, Patch, TDR) | ✅ | ❌ | `install-kmd.ps1` + `bc250kmdtest` |
-| M6a | `libbc250` (escape API) + `bc250demo` | ✅ | ❌ | `bc250demo` |
-| M6b | `libbc250wddm`: winsys over D3DKMT (devices, contexts, allocations, Render with patch lists, Lock) + `bc250kmdtest` | ✅ | ❌ | `bc250kmdtest` |
-| M6c | Mesa RADV built for Windows on top of `libbc250wddm` (Vulkan, `vkcube`) | ❌ | ❌ | — |
-| M7 | Direct3D via DXVK on top of M6c | ❌ | ❌ | — |
+| M1 | BAR5 registers, memory layout, SMU (fw 88.6.0), GFX clock (1500 MHz) | ✅ | ✅ | `bc250ctl info` (see `docs/hw-info-m1.txt`) |
+| M2 | IH ring 0 + ISR, **MSI** interrupts | ✅ | ✅ SDMA trap → IH → ISR | `bc250ctl fulltest` |
+| M3 | GCVM VMID0: system aperture + flat 256 MiB GART | ✅ | ✅ SDMA writes a system page through the GART | `bc250ctl fulltest` |
+| M4c | Firmware loading through the **PSP** (KM ring, TMR, LOAD_IP_FW) | ✅ | ✅ SDMA0, CE, PFP, ME, RLC loaded | `bc250ctl fulltest` |
+| M4 | SDMA0 ring: WRITE_LINEAR / FENCE / TRAP | ✅ | ✅ 79 µs | `bc250ctl fulltest` |
+| M4b | RLC + CP graphics ring, PM4 | ✅ | ⚠️ microcode runs, ring not fetched yet | `bc250ctl fulltest` |
+| M5a | Indirect buffers + fences; GPU fill into the scanout | ✅ | ✅ rectangle drawn on screen | `bc250ctl submit-test`, `fill-rect` |
+| M5b | `BC250Kmd.sys`: full WDDM 1.2 driver | ✅ | ❌ not installed yet | `install-kmd.ps1` + `bc250kmdtest` |
+| M6a | `libbc250` (escape API) + `bc250demo` | ✅ | ✅ fill+copy 64 KiB, color bars | `bc250demo` |
+| M6b | `libbc250wddm` (D3DKMT winsys) + `bc250kmdtest` | ✅ | ❌ needs M5b | `bc250kmdtest` |
+| M6c | Mesa RADV on Windows (Vulkan) | ❌ | ❌ | — |
+| M7 | Direct3D via DXVK | ❌ | ❌ | — |
+
+### Hardware findings (BC-250, cyan_skillfish2)
+
+- With the latest DDI version and `DxgkDdiEscape`, dxgkrnl fails `AddDevice` (0xC0000182): the driver
+  declares `DXGKDDI_INTERFACE_VERSION_WIN8`, and `DRIVERCAPS` must accept the WIN8-sized buffer.
+- The microcode ports (`SDMA0_UCODE_*`, `CP_HYP_*`, RLC ucode) are **protected**: direct writes are
+  dropped and read back as `FFFFFFFF`. Firmware must be loaded through the PSP (sOS is already running).
+- SDMA `FENCE` needs `MTYPE=UC` (header bits 16–18) or the value stays in the GPU cache.
+- The GPU does not raise the legacy INTx line: the INF requests **MSI**, and the IH uses `RPTR_REARM`.
+- CP graphics (open): with PSP-loaded PFP/ME/CE and RLC running, `CP_STAT=80008000` (PFP busy),
+  `CP_PFP_HEADER_DUMP=DEF0DEF0`, ring rptr stays 0. Next suspects: KIQ/MEC prerequisites,
+  `constants_init`, GRBM CAM remapping, CE/DE sync.
 
 ## Test sequence on the BC-250
 
