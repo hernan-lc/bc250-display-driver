@@ -31,7 +31,9 @@ DriverEntry(
     // Initialize DDI function pointers and dxgkrnl
     KMDDOD_INITIALIZATION_DATA InitialData = {0};
 
-    InitialData.Version = DXGKDDI_INTERFACE_VERSION;
+    // WIN8 (WDDM 1.2) like other display-only drivers that implement DxgkDdiEscape (e.g. VirtualBox):
+    // with the latest interface version dxgkrnl fails AddDevice (0xC0000182) once Escape is present.
+    InitialData.Version = DXGKDDI_INTERFACE_VERSION_WIN8;
 
     InitialData.DxgkDdiAddDevice                    = BddDdiAddDevice;
     InitialData.DxgkDdiStartDevice                  = BddDdiStartDevice;
