@@ -33,7 +33,8 @@ if (-not $vs) {
          '"Desarrollo para el escritorio con C++" + "MSVC v143 bibliotecas con mitigacion de Spectre (x64/x86)". ' +
          'Alternativa: usa el workflow de GitHub Actions (.github/workflows/build.yml).')
 }
-$msbuild = Join-Path $vs 'MSBuild\Current\Bin\MSBuild.exe'
+# 64-bit MSBuild: the x64 NuGet WDK only ships x64 tools (InfVerif, ApiValidator)
+$msbuild = Join-Path $vs 'MSBuild\Current\Bin\amd64\MSBuild.exe'
 if (-not (Test-Path $msbuild)) { throw "No se encontro $msbuild" }
 
 & $msbuild BC250Display.sln /m /p:Configuration=$Configuration /p:Platform=x64 /p:SignMode=TestSign

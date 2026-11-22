@@ -5,8 +5,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="Exists('$(_Bc250WdkPkg)bin\10.0.26100.0\x64\stampinf.exe')">
     <WDKBinRoot>$(_Bc250WdkPkg)bin\10.0.26100.0</WDKBinRoot>
-    <WDKBinRoot_x86>$(WDKBinRoot)\x86</WDKBinRoot_x86>
     <WDKBinRoot_x64>$(WDKBinRoot)\x64</WDKBinRoot_x64>
-    <ExecutablePath>$(WDKBinRoot)\x64;$(WDKBinRoot)\x86;$(ExecutablePath)</ExecutablePath>
+    <ExecutablePath>$(WDKBinRoot)\x64;$(ExecutablePath)</ExecutablePath>
   </PropertyGroup>
 </Project>
