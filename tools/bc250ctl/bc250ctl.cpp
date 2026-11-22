@@ -11,7 +11,7 @@
 //   bc250ctl sdma-start <sdma.bin>        M4 (dev): upload SDMA0 firmware and start the ring
 //   bc250ctl sdma-test                    M4 (dev): VRAM write, GART write, fence, trap
 //   bc250ctl selftest <sdma.bin>          M2+M3+M4 in order
-//   bc250ctl stop                         halt SDMA, disable IH
+//   bc250ctl submit-test                  M5 (dev): CPU-built indirect buffer executed by SDMA, fence\n//   bc250ctl fill-rect x y w h rrggbb     M5 (dev): GPU draws a rectangle into the scanout buffer\n//   bc250ctl stop                         halt SDMA, disable IH
 //   bc250ctl devmode on|off               set DeveloperMode for the adapter (Administrator)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -230,7 +230,8 @@ static int CmdDevMode(bool On)
 static void Usage()
 {
     puts("bc250ctl info | read <reg> | write <reg> <val> | smu <msg> [arg] | gart-init | ih-init | ih-status\n"
-         "         sdma-start <cyan_skillfish2_sdma.bin> | sdma-test | selftest <sdma.bin> | stop | devmode on|off");
+         "         sdma-start <cyan_skillfish2_sdma.bin> | sdma-test | submit-test | fill-rect <x> <y> <w> <h> <rrggbb>\n"
+         "         selftest <sdma.bin> | stop | devmode on|off");
 }
 
 int main(int argc, char** argv)
@@ -248,6 +249,42 @@ int main(int argc, char** argv)
     if (!_stricmp(c, "stop")) return Run(NewEsc(BC250_CMD_STOP_ALL), "stop");
     if (!_stricmp(c, "sdma-test")) return CmdSdmaTest();
     if (!_stricmp(c, "sdma-start") && argc >= 3) return CmdSdmaStart(argv[2]);
+    if (!_stricmp(c, "fill-rect") && argc >= 7)
+    {
+        BC250_ESCAPE* e = NewEsc(BC250_CMD_FILL_RECT);
+        e->u.Rect.X = strtoul(argv[2], nullptr, 0);
+        e->u.Rect.Y = strtoul(argv[3], nullptr, 0);
+        e->u.Rect.Width = strtoul(argv[4], nullptr, 0);
+        e->u.Rect.Height = strtoul(argv[5], nullptr, 0);
+        e->u.Rect.Color = strtoul(argv[6], nullptr, 16);
+        int r = Run(e, "fill-rect");
+        printf("  %u CONSTANT_FILL packets, fence %u, %u us\n", e->u.Rect.Packets, e->u.Rect.Fence, e->u.Rect.ElapsedUs);
+        return r;
+    }
+    if (!_stricmp(c, "submit-test"))
+    {
+        // Build an IB on the CPU: WRITE_LINEAR of 4 dwords into the scratch test area, then read them back.
+        BC250_ESCAPE* info = NewEsc(BC250_CMD_SUBMIT_IB);
+        info->u.Submit.Count = 1;                       // a single NOP first, to learn the scratch address
+        info->u.Submit.Ib[0] = 0;
+        if (Run(info, "submit-nop")) return 2;
+        unsigned long long Dst = info->u.Submit.ScratchMc + 0x100000;   // BC250_SCR_TEST
+        BC250_ESCAPE* e = NewEsc(BC250_CMD_SUBMIT_IB);
+        bc_u32* p = e->u.Submit.Ib;
+        p[0] = 2;                                       // SDMA_OP_WRITE, WRITE_LINEAR
+        p[1] = (bc_u32)Dst; p[2] = (bc_u32)(Dst >> 32);
+        p[3] = 3;                                       // 4 dwords
+        p[4] = 0x11111111; p[5] = 0x22222222; p[6] = 0x33333333; p[7] = 0x44444444;
+        e->u.Submit.Count = 8;
+        if (Run(e, "submit-ib")) return 2;
+        printf("  IB at %012llX, fence %u, %u us\n", e->u.Submit.IbMc, e->u.Submit.Fence, e->u.Submit.ElapsedUs);
+        BC250_ESCAPE* v = NewEsc(BC250_CMD_VRAM_READ);
+        v->u.Vram.Offset = 0x100000; v->u.Vram.Count = 4;
+        if (Run(v, "vram-read")) return 2;
+        bool Ok = v->u.Vram.Data[0] == 0x11111111 && v->u.Vram.Data[3] == 0x44444444;
+        printf("  read back %08X %08X %08X %08X -> %s\n", v->u.Vram.Data[0], v->u.Vram.Data[1], v->u.Vram.Data[2], v->u.Vram.Data[3], Ok ? "PASSED" : "FAILED");
+        return Ok ? 0 : 2;
+    }
     if (!_stricmp(c, "read") && argc >= 3)
     {
         BC250_ESCAPE* e = NewEsc(BC250_CMD_READ_REG);

@@ -27,6 +27,8 @@
 #define BC250_SCR_WB           0x0B0000u   // rptr writeback + test slots
 #define BC250_SCR_DUMMY        0x0C0000u   // dummy page for faults
 #define BC250_SCR_TEST         0x100000u   // 1 MiB test area
+#define BC250_SCR_IB           0x200000u   // 1 MiB indirect buffers (M5)
+#define BC250_SCR_FENCE        (BC250_SCR_WB + 0x200u)
 
 #define BC250_GART_SIZE        0x10000000ull   // 256 MiB
 #define BC250_IH_RING_SIZE     0x10000u
@@ -43,7 +45,7 @@ public:
 
     // PASSIVE_LEVEL. Never fails the adapter start: on any problem the GPU layer stays disabled.
     void Start(_In_ const DXGKRNL_INTERFACE* pDxgk, _In_ const DXGK_DEVICE_INFO* pDevInfo,
-               _In_ DEVICE_OBJECT* pPdo, _In_ PHYSICAL_ADDRESS FramebufferPhys, _In_ ULONG FramebufferSize);
+               _In_ DEVICE_OBJECT* pPdo, _In_ const DXGK_DISPLAY_INFORMATION* pScanout);
     void Stop();     // PASSIVE_LEVEL: halts engines, disables IH, unmaps
 
     NTSTATUS Escape(_Inout_updates_bytes_(Size) VOID* pData, _In_ UINT Size);   // PASSIVE_LEVEL
@@ -83,6 +85,10 @@ private:
     VOID     SdmaWrite(ULONG Dw);
     VOID     SdmaCommit();
     NTSTATUS SdmaTest(_Out_ BC250_TEST* pTest);
+    // --- M5: command submission ---
+    NTSTATUS SubmitIb(_In_reads_(Count) const ULONG* pIb, ULONG Count, _Out_ ULONG* pFence, _Out_ ULONG* pUs);
+    NTSTATUS FillRect(_Inout_ BC250_RECT* pRect);
+
     BOOLEAN  WaitScratch(ULONG Off, ULONG Expect, ULONG TimeoutUs, _Out_ bc_u32* pSeen);
 
     // state
@@ -95,8 +101,10 @@ private:
     BC250_BAR m_BarVram, m_BarDoorbell, m_BarMmio;
     volatile UCHAR* m_Mmio;
 
-    PHYSICAL_ADDRESS m_FbPhys;          // GOP framebuffer
+    PHYSICAL_ADDRESS m_FbPhys;          // GOP framebuffer (scanout)
     ULONG            m_FbSize;
+    ULONG            m_FbWidth, m_FbHeight, m_FbPitch;
+    ULONG            m_SdmaFence;       // last fence value emitted
 
     ULONGLONG m_FbStart, m_FbEnd, m_VramBasePhys;
     ULONG     m_VramSizeMb;

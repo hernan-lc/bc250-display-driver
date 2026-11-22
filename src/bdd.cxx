@@ -89,9 +89,7 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartIn
     m_Flags.DriverStarted = TRUE;
 
     // BC-250 layer: maps the register BAR and reads state only. Engines start on request.
-    m_Gpu.Start(&m_DxgkInterface, &m_DeviceInfo, m_pPhysicalDevice,
-                m_CurrentModes[0].DispInfo.PhysicAddress,
-                m_CurrentModes[0].DispInfo.Height * m_CurrentModes[0].DispInfo.Pitch);
+    m_Gpu.Start(&m_DxgkInterface, &m_DeviceInfo, m_pPhysicalDevice, &m_CurrentModes[0].DispInfo);
 
     *pNumberOfViews = MAX_VIEWS;
     *pNumberOfChildren = MAX_CHILDREN;

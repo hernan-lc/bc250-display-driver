@@ -27,6 +27,8 @@ enum BC250_CMD {
     BC250_CMD_SDMA_TEST      = 11,  // M4 DEV: WRITE_LINEAR to VRAM and to a GART page, FENCE, TRAP
     BC250_CMD_STOP_ALL       = 12,  // DEV: halt SDMA, disable IH (GART stays, it is harmless)
     BC250_CMD_VRAM_READ      = 13,  // DEV: read dwords from the driver's VRAM scratch window
+    BC250_CMD_SUBMIT_IB      = 14,  // M5 DEV: run a user SDMA indirect buffer, wait for its fence
+    BC250_CMD_FILL_RECT      = 15,  // M5 DEV: GPU (SDMA CONSTANT_FILL) draws a rectangle into the scanout buffer
 };
 
 // Status codes returned in BC250_ESC_HEADER::Status (0 = OK, negative = error)
@@ -130,6 +132,24 @@ typedef struct BC250_VRAM {
     bc_u32 Data[64];
 } BC250_VRAM;
 
+#define BC250_IB_MAX_DWORDS 1024u
+
+typedef struct BC250_SUBMIT {
+    bc_u32 Count;        // dwords in Ib
+    bc_u32 Fence;        // out: fence value the GPU wrote
+    bc_u32 ElapsedUs;    // out
+    bc_u32 Reserved;
+    bc_u64 IbMc;         // out: GPU address the IB was copied to
+    bc_u64 ScratchMc;    // out: GPU address of the scratch window (for building IBs)
+    bc_u32 Ib[BC250_IB_MAX_DWORDS];
+} BC250_SUBMIT;
+
+typedef struct BC250_RECT {
+    bc_u32 X, Y, Width, Height;
+    bc_u32 Color;        // X8R8G8B8
+    bc_u32 Fence, ElapsedUs, Packets;  // out
+} BC250_RECT;
+
 typedef struct BC250_ESCAPE {
     BC250_ESC_HEADER Header;
     union {
@@ -140,6 +160,8 @@ typedef struct BC250_ESCAPE {
         BC250_IH_STATUS Ih;
         BC250_TEST      Test;
         BC250_VRAM      Vram;
+        BC250_SUBMIT    Submit;
+        BC250_RECT      Rect;
     } u;
 } BC250_ESCAPE;
 

@@ -100,13 +100,16 @@ BOOLEAN BC250_GPU::Isr()
 #pragma code_seg(pop)
 
 void BC250_GPU::Start(const DXGKRNL_INTERFACE* pDxgk, const DXGK_DEVICE_INFO* pDevInfo,
-                      DEVICE_OBJECT* pPdo, PHYSICAL_ADDRESS FramebufferPhys, ULONG FramebufferSize)
+                      DEVICE_OBJECT* pPdo, const DXGK_DISPLAY_INFORMATION* pScanout)
 {
     PAGED_CODE();
     RtlCopyMemory(&m_Dxgk, pDxgk, sizeof(m_Dxgk));
     m_pPdo = pPdo;
-    m_FbPhys = FramebufferPhys;
-    m_FbSize = FramebufferSize;
+    m_FbPhys   = pScanout->PhysicAddress;
+    m_FbWidth  = pScanout->Width;
+    m_FbHeight = pScanout->Height;
+    m_FbPitch  = pScanout->Pitch;
+    m_FbSize   = pScanout->Height * pScanout->Pitch;
     m_DeveloperMode = ReadDeveloperMode();
 
     // PCI identity
@@ -725,6 +728,93 @@ done:
 }
 
 // ----------------------------------------------------------------------------------------------
+// M5: command submission (indirect buffer + fence + trap), the path a render KMD's
+// DxgkDdiSubmitCommand / BuildPagingBuffer would use.
+// ----------------------------------------------------------------------------------------------
+
+#define SDMA_OP_COPY        1
+#define SDMA_OP_INDIRECT    4
+#define SDMA_OP_CONST_FILL  11
+#define SDMA_FILLSIZE_DWORD (2u << 30)
+
+NTSTATUS BC250_GPU::SubmitIb(const ULONG* pIb, ULONG Count, ULONG* pFence, ULONG* pUs)
+{
+    PAGED_CODE();
+    *pFence = 0; *pUs = 0;
+    if (!m_SdmaReady) return STATUS_INVALID_DEVICE_STATE;
+    if (!Count || Count > BC250_IB_MAX_DWORDS) return STATUS_INVALID_PARAMETER;
+
+    // copy the IB into VRAM (32-byte aligned)
+    for (ULONG i = 0; i < Count; ++i) ScrWrite(BC250_SCR_IB + i * 4, pIb[i]);
+    ULONGLONG IbMc = ScrMc(BC250_SCR_IB);
+    ULONG FenceValue = ++m_SdmaFence;
+    ScrWrite(BC250_SCR_FENCE, 0);
+
+    // pad so the 6-dword INDIRECT packet ends on an 8-dword boundary (sdma_v5_0_ring_emit_ib)
+    ULONG Nops = (2 - (m_SdmaWptr & 7)) & 7;
+    for (ULONG i = 0; i < Nops; ++i) SdmaWrite(SDMA_HDR(SDMA_OP_NOP, 0));
+    SdmaWrite(SDMA_HDR(SDMA_OP_INDIRECT, 0) | (0u << 16));   // VMID 0
+    SdmaWrite((ULONG)IbMc & 0xFFFFFFE0);
+    SdmaWrite((ULONG)(IbMc >> 32));
+    SdmaWrite(Count);
+    SdmaWrite(0);                                            // CSA (unused, no preemption)
+    SdmaWrite(0);
+
+    ULONGLONG F = ScrMc(BC250_SCR_FENCE);
+    SdmaWrite(SDMA_HDR(SDMA_OP_FENCE, 0));
+    SdmaWrite((ULONG)F);
+    SdmaWrite((ULONG)(F >> 32));
+    SdmaWrite(FenceValue);
+    if (m_IhReady) { SdmaWrite(SDMA_HDR(SDMA_OP_TRAP, 0)); SdmaWrite(0); }
+
+    LARGE_INTEGER T0 = KeQueryPerformanceCounter(NULL), Freq;
+    SdmaCommit();
+    bc_u32 Seen = 0;
+    BOOLEAN Ok = WaitScratch(BC250_SCR_FENCE, FenceValue, 500000, &Seen);
+    LARGE_INTEGER T1 = KeQueryPerformanceCounter(&Freq);
+    *pUs = (ULONG)(((T1.QuadPart - T0.QuadPart) * 1000000) / (Freq.QuadPart ? Freq.QuadPart : 1));
+    *pFence = Seen;
+    return Ok ? STATUS_SUCCESS : STATUS_IO_TIMEOUT;
+}
+
+NTSTATUS BC250_GPU::FillRect(BC250_RECT* r)
+{
+    PAGED_CODE();
+    if (!m_SdmaReady) return STATUS_INVALID_DEVICE_STATE;
+    if (!m_FbPitch || !m_FbWidth || !m_FbHeight) return STATUS_DEVICE_NOT_READY;
+    if (r->X >= m_FbWidth || r->Y >= m_FbHeight || !r->Width || !r->Height) return STATUS_INVALID_PARAMETER;
+    ULONG W = min(r->Width, m_FbWidth - r->X);
+    ULONG H = min(r->Height, m_FbHeight - r->Y);
+
+    // scanout GPU address: same offset inside VRAM as inside the BAR0 aperture
+    if ((ULONGLONG)m_FbPhys.QuadPart < m_BarVram.PhysAddr) return STATUS_DEVICE_CONFIGURATION_ERROR;
+    ULONGLONG FbMc = m_FbStart + ((ULONGLONG)m_FbPhys.QuadPart - m_BarVram.PhysAddr);
+
+    // one CONSTANT_FILL (5 dwords) per row; split into IBs of up to 200 rows
+    ULONG IbBuf[500];
+    ULONG Packets = 0, Fence = 0, Us = 0, TotalUs = 0;
+    for (ULONG Row = 0; Row < H; )
+    {
+        ULONG n = 0;
+        for (; Row < H && n + 5 <= ARRAYSIZE(IbBuf); ++Row)
+        {
+            ULONGLONG Dst = FbMc + (ULONGLONG)(r->Y + Row) * m_FbPitch + (ULONGLONG)r->X * 4;
+            IbBuf[n++] = SDMA_HDR(SDMA_OP_CONST_FILL, 0) | SDMA_FILLSIZE_DWORD;
+            IbBuf[n++] = (ULONG)Dst;
+            IbBuf[n++] = (ULONG)(Dst >> 32);
+            IbBuf[n++] = r->Color;
+            IbBuf[n++] = W * 4 - 1;           // byte count - 1
+            ++Packets;
+        }
+        NTSTATUS St = SubmitIb(IbBuf, n, &Fence, &Us);
+        TotalUs += Us;
+        if (!NT_SUCCESS(St)) { r->Fence = Fence; r->ElapsedUs = TotalUs; r->Packets = Packets; return St; }
+    }
+    r->Fence = Fence; r->ElapsedUs = TotalUs; r->Packets = Packets;
+    return STATUS_SUCCESS;
+}
+
+// ----------------------------------------------------------------------------------------------
 // Escape dispatcher
 // ----------------------------------------------------------------------------------------------
 
@@ -821,6 +911,18 @@ NTSTATUS BC250_GPU::Escape(VOID* pData, UINT Size)
         HdpInvalidate();
         for (ULONG i = 0; i < e->u.Vram.Count; ++i) e->u.Vram.Data[i] = ScrRead(e->u.Vram.Offset + i * 4);
         break;
+    case BC250_CMD_SUBMIT_IB:
+    {
+        ULONG Fence = 0, Us = 0;
+        if (e->u.Submit.Count > BC250_IB_MAX_DWORDS) { R = BC250_E_RANGE; break; }
+        R = ToEsc(SubmitIb((const ULONG*)e->u.Submit.Ib, e->u.Submit.Count, &Fence, &Us));
+        e->u.Submit.Fence = Fence;
+        e->u.Submit.ElapsedUs = Us;
+        e->u.Submit.IbMc = ScrMc(BC250_SCR_IB);
+        e->u.Submit.ScratchMc = m_ScratchMc;
+        break;
+    }
+    case BC250_CMD_FILL_RECT:   R = ToEsc(FillRect(&e->u.Rect)); break;
     default:
         R = BC250_E_BADCMD;
     }
