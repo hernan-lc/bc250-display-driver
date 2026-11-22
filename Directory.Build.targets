@@ -1,0 +1,12 @@
+<Project>
+  <!-- With the NuGet WDK, make sure the kit tools (stampinf, inf2cat, signtool...) are found. -->
+  <PropertyGroup>
+    <_Bc250WdkPkg>$(MSBuildThisFileDirectory)packages\Microsoft.Windows.WDK.x64.10.0.26100.6584\c\</_Bc250WdkPkg>
+  </PropertyGroup>
+  <PropertyGroup Condition="Exists('$(_Bc250WdkPkg)bin\10.0.26100.0\x64\stampinf.exe')">
+    <WDKBinRoot>$(_Bc250WdkPkg)bin\10.0.26100.0</WDKBinRoot>
+    <WDKBinRoot_x86>$(WDKBinRoot)\x86</WDKBinRoot_x86>
+    <WDKBinRoot_x64>$(WDKBinRoot)\x64</WDKBinRoot_x64>
+    <ExecutablePath>$(WDKBinRoot)\x64;$(WDKBinRoot)\x86;$(ExecutablePath)</ExecutablePath>
+  </PropertyGroup>
+</Project>
