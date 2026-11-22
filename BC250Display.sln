@@ -5,6 +5,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BC250Display", "BC250Display.vcxproj", "{6B2C1E0A-250B-4C25-9A1E-BC250D15A1A7}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "bc250ctl", "tools\bc250ctl\bc250ctl.vcxproj", "{8E1B2C3D-250C-4A11-9C2E-BC250C7101AB}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -15,5 +17,9 @@ Global
 		{6B2C1E0A-250B-4C25-9A1E-BC250D15A1A7}.Debug|x64.Build.0 = Debug|x64
 		{6B2C1E0A-250B-4C25-9A1E-BC250D15A1A7}.Release|x64.ActiveCfg = Release|x64
 		{6B2C1E0A-250B-4C25-9A1E-BC250D15A1A7}.Release|x64.Build.0 = Release|x64
+		{8E1B2C3D-250C-4A11-9C2E-BC250C7101AB}.Debug|x64.ActiveCfg = Debug|x64
+		{8E1B2C3D-250C-4A11-9C2E-BC250C7101AB}.Debug|x64.Build.0 = Debug|x64
+		{8E1B2C3D-250C-4A11-9C2E-BC250C7101AB}.Release|x64.ActiveCfg = Release|x64
+		{8E1B2C3D-250C-4A11-9C2E-BC250C7101AB}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 EndGlobal

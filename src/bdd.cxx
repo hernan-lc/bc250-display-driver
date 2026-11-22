@@ -87,6 +87,12 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartIn
         return STATUS_UNSUCCESSFUL;
     }
     m_Flags.DriverStarted = TRUE;
+
+    // BC-250 layer: maps the register BAR and reads state only. Engines start on request.
+    m_Gpu.Start(&m_DxgkInterface, &m_DeviceInfo, m_pPhysicalDevice,
+                m_CurrentModes[0].DispInfo.PhysicAddress,
+                m_CurrentModes[0].DispInfo.Height * m_CurrentModes[0].DispInfo.Pitch);
+
     *pNumberOfViews = MAX_VIEWS;
     *pNumberOfChildren = MAX_CHILDREN;
 
@@ -98,6 +104,7 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StopDevice(VOID)
 {
     PAGED_CODE();
 
+    m_Gpu.Stop();
     CleanUp();
 
     m_Flags.DriverStarted = FALSE;
@@ -506,6 +513,8 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StopDeviceAndReleasePostDisplayOwnership(_In_  D3
 
     BDD_ASSERT(TargetId < MAX_CHILDREN);
 
+    // Halt any engine we started before handing the display to the next driver
+    m_Gpu.Stop();
 
     D3DDDI_VIDEO_PRESENT_SOURCE_ID SourceId = FindSourceForTarget(TargetId, TRUE);
 
@@ -743,8 +752,15 @@ BOOLEAN BASIC_DISPLAY_DRIVER::InterruptRoutine(_In_  ULONG MessageNumber)
 {
     UNREFERENCED_PARAMETER(MessageNumber);
 
-    // BDD cannot handle interrupts
-    return FALSE;
+    // Only the BC-250 IH ring raises interrupts, and only after "bc250ctl ih-init"
+    return m_Gpu.Isr();
+}
+
+NTSTATUS BASIC_DISPLAY_DRIVER::Escape(_In_ CONST DXGKARG_ESCAPE* pEscape)
+{
+    PAGED_CODE();
+    if (!pEscape) return STATUS_INVALID_PARAMETER;
+    return m_Gpu.Escape(pEscape->pPrivateDriverData, pEscape->PrivateDriverDataSize);
 }
 
 VOID BASIC_DISPLAY_DRIVER::ResetDevice(VOID)

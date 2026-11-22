@@ -58,6 +58,7 @@ extern "C"
 #define EDID_V1_BLOCK_SIZE 128
 
 #include "BDD_ErrorLog.hxx"
+#include "gpu\bc250_gpu.h"
 
 #define MIN_WIDTH                    640
 #define MIN_HEIGHT                   480
@@ -208,6 +209,9 @@ private:
     // Device information
     DXGK_DEVICE_INFO m_DeviceInfo;
 
+    // BC-250 hardware layer (M1-M4)
+    BC250_GPU m_Gpu;
+
 public:
     BASIC_DISPLAY_DRIVER(_In_ DEVICE_OBJECT* pPhysicalDeviceObject);
     ~BASIC_DISPLAY_DRIVER();
@@ -262,6 +266,9 @@ public:
     BOOLEAN InterruptRoutine(_In_  ULONG MessageNumber);
 
     VOID DpcRoutine(VOID);
+
+    // Private escapes used by bc250ctl.exe
+    NTSTATUS Escape(_In_ CONST DXGKARG_ESCAPE* pEscape);
 
     // Return DriverCaps, doesn't support other queries though
     NTSTATUS QueryAdapterInfo(_In_ CONST DXGKARG_QUERYADAPTERINFO* pQueryAdapterInfo);
@@ -451,6 +458,12 @@ VOID
 BddDdiResetDevice(
     _In_  VOID* pDeviceContext);
 
+
+NTSTATUS
+APIENTRY
+BddDdiEscape(
+    _In_ CONST HANDLE          hAdapter,
+    _In_ CONST DXGKARG_ESCAPE* pEscape);
 
 NTSTATUS
 BddDdiDispatchIoRequest(

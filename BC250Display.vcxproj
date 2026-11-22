@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -107,6 +107,7 @@
     <ClCompile Include="src\bltfuncs.cxx" />
     <ClCompile Include="src\blthw.cxx" />
     <ClCompile Include="src\memory.cxx" />
+    <ClCompile Include="src\gpu\bc250_gpu.cxx" />
     <ResourceCompile Include="src\bc250display.rc" />
   </ItemGroup>
   <ItemGroup>

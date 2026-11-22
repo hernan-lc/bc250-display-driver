@@ -38,6 +38,7 @@ DriverEntry(
     InitialData.DxgkDdiResetDevice                  = BddDdiResetDevice;
     InitialData.DxgkDdiRemoveDevice                 = BddDdiRemoveDevice;
     InitialData.DxgkDdiDispatchIoRequest            = BddDdiDispatchIoRequest;
+    InitialData.DxgkDdiEscape                       = BddDdiEscape;
     InitialData.DxgkDdiInterruptRoutine             = BddDdiInterruptRoutine;
     InitialData.DxgkDdiDpcRoutine                   = BddDdiDpcRoutine;
     InitialData.DxgkDdiQueryChildRelations          = BddDdiQueryChildRelations;
@@ -175,6 +176,23 @@ BddDdiDispatchIoRequest(
         return STATUS_UNSUCCESSFUL;
     }
     return pBDD->DispatchIoRequest(VidPnSourceId, pVideoRequestPacket);
+}
+
+NTSTATUS
+APIENTRY
+BddDdiEscape(
+    _In_ CONST HANDLE          hAdapter,
+    _In_ CONST DXGKARG_ESCAPE* pEscape)
+{
+    PAGED_CODE();
+    BDD_ASSERT_CHK(hAdapter != NULL);
+
+    BASIC_DISPLAY_DRIVER* pBDD = reinterpret_cast<BASIC_DISPLAY_DRIVER*>(hAdapter);
+    if (!pBDD->IsDriverActive())
+    {
+        return STATUS_UNSUCCESSFUL;
+    }
+    return pBDD->Escape(pEscape);
 }
 
 NTSTATUS
