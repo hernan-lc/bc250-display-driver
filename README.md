@@ -17,8 +17,11 @@ Register offsets and init sequences are taken from the Linux `amdgpu` driver (MI
 | M2 interrupts (IH ring) | ✅ | not yet |
 | M3 GPU memory (GCVM + GART) | ✅ | not yet |
 | M4 SDMA engine (firmware load, ring, fences) | ✅ | not yet |
+| M4b RLC + CP graphics ring, PM4 | ✅ | not yet |
 | M5a command submission + GPU fill into the screen | ✅ | not yet |
-| M5b full WDDM render driver, M6b Mesa RADV (Vulkan) | design only | — |
+| M5b `BC250Kmd.sys` full WDDM driver (experimental) | ✅ | not yet |
+| M6a/M6b user-mode APIs: `libbc250` (escapes), `libbc250wddm` (D3DKMT winsys) | ✅ | not yet |
+| M6c Mesa RADV (Vulkan), M7 Direct3D | not started | — |
 
 Details, test sequence and risks: [docs/ROADMAP.md](docs/ROADMAP.md).
 
@@ -27,10 +30,12 @@ Details, test sequence and risks: [docs/ROADMAP.md](docs/ROADMAP.md).
 | Path | What |
 |---|---|
 | `src/` | KMDOD-based WDDM driver (`BC250Display.sys`) |
-| `src/gpu/` | BC-250 hardware layer (M1–M5a) and the escape protocol |
+| `src/gpu/` | BC-250 hardware layer (M1–M5a, CP in `bc250_gpu_cp.cxx`) and the escape protocol |
+| `src/kmd/` | `BC250Kmd.sys`: full WDDM driver (experimental, `package/bc250kmd.inf`) |
 | `tools/bc250ctl/` | control and test tool |
-| `umd/libbc250/` | header-only user-mode API (winsys prototype) |
-| `umd/bc250demo/` | UMD-style client: builds and submits command buffers |
+| `umd/libbc250/` | header-only API over private escapes |
+| `umd/libbc250wddm/` | header-only winsys over D3DKMT for `BC250Kmd` |
+| `umd/bc250demo/`, `umd/bc250kmdtest/` | clients that build and submit command buffers |
 | `tools/genregs.py` | regenerates `src/gpu/bc250_regs.h` from Linux amdgpu headers |
 | `scripts/get-firmware.ps1` | downloads `cyan_skillfish2_*.bin` from linux-firmware |
 

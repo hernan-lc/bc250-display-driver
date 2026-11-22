@@ -1,77 +1,77 @@
 # Roadmap and status
 
-Legend: **implemented** = code written and builds; **HW-tested** = verified on a real BC-250.
-Everything past M1 is opt-in at runtime (`bc250ctl`) and requires the `DeveloperMode` registry
-value, so a fresh install behaves exactly like the display-only driver.
+Legend: **code** = written and builds (locally and in CI); **HW-tested** = verified on a real BC-250.
+Nothing past M1 runs unless you ask for it (`bc250ctl` with `DeveloperMode`, or by installing the
+experimental `BC250Kmd` driver), so a fresh install of `BC250Display` behaves like a display-only driver.
 
 | # | Milestone | Code | HW-tested | How to test |
 |---|---|---|---|---|
-| 0 | Display-only on the GOP framebuffer | ✅ | ✅ 1920×1080 | install the driver |
-| M1 | Map BAR5 registers; read GRBM/CP/RLC/SDMA status, memory layout, SMU version, GFX clock | ✅ | ❌ | `bc250ctl info` |
-| M2 | IH ring 0 + ISR (line interrupts), counters | ✅ | ❌ | `bc250ctl selftest` (TRAP step) |
-| M3 | GCVM VMID0: system aperture + flat 256 MiB GART | ✅ | ❌ | `bc250ctl selftest` (GART step) |
-| M4 | SDMA0: direct microcode load, GFX ring, WRITE_LINEAR / FENCE / TRAP | ✅ | ❌ | `bc250ctl selftest firmware\cyan_skillfish2_sdma.bin` |
-| M5a | Command submission: indirect buffers + fences + interrupts; GPU fill into scanout | ✅ | ❌ | `bc250ctl submit-test`, `bc250ctl fill-rect 100 100 400 300 ff0000` |
-| M5b | Full WDDM render KMD (memory segments, allocations, paging via SDMA, scheduling, TDR) | ❌ | ❌ | — |
-| M6a | `libbc250` user-mode winsys API + `bc250demo` (UMD-style client) | ✅ | ❌ | `bc250demo` |
-| M6b | Mesa RADV on Windows (Vulkan) | ❌ | ❌ | — |
-| M7 | Direct3D via DXVK on top of M6b | ❌ | ❌ | — |
+| 0 | Display-only on the GOP framebuffer (`BC250Display.sys`) | ✅ | ✅ 1920×1080 | `install.ps1` |
+| M1 | BAR5 registers, memory layout, SMU version, GFX clock | ✅ | ❌ | `bc250ctl info` |
+| M2 | IH ring 0 + ISR (line interrupts) | ✅ | ❌ | `bc250ctl fulltest` |
+| M3 | GCVM VMID0: system aperture + flat 256 MiB GART | ✅ | ❌ | `bc250ctl fulltest` |
+| M4 | SDMA0: direct microcode load, ring, WRITE_LINEAR / FENCE / TRAP | ✅ | ❌ | `bc250ctl fulltest` |
+| M4b | RLC + CP graphics ring (PFP/ME/CE via instruction cache), clear state, PM4 tests | ✅ | ❌ | `bc250ctl fulltest` |
+| M5a | Indirect buffers + fences; GPU fill into the scanout | ✅ | ❌ | `bc250ctl submit-test`, `fill-rect` |
+| M5b | `BC250Kmd.sys`: full WDDM 1.2 driver (segments, allocations, paging via SDMA, 2 nodes, Present, Patch, TDR) | ✅ | ❌ | `install-kmd.ps1` + `bc250kmdtest` |
+| M6a | `libbc250` (escape API) + `bc250demo` | ✅ | ❌ | `bc250demo` |
+| M6b | `libbc250wddm`: winsys over D3DKMT (devices, contexts, allocations, Render with patch lists, Lock) + `bc250kmdtest` | ✅ | ❌ | `bc250kmdtest` |
+| M6c | Mesa RADV built for Windows on top of `libbc250wddm` (Vulkan, `vkcube`) | ❌ | ❌ | — |
+| M7 | Direct3D via DXVK on top of M6c | ❌ | ❌ | — |
 
 ## Test sequence on the BC-250
 
 ```powershell
 .\scripts\build.ps1
-.\scripts\install.ps1                      # as Administrator; reboot if asked
-.\out\Release\bc250ctl.exe info            # M1, read-only, safe
+.\scripts\get-firmware.ps1                 # cyan_skillfish2_{sdma,rlc,pfp,me,ce}.bin -> firmware\
+
+# A) display-only driver + escape tests
+.\scripts\install.ps1                      # as Administrator
+.\out\Release\bc250ctl.exe info            # M1, read-only
 .\out\Release\bc250ctl.exe devmode on      # as Administrator
-.\scripts\get-firmware.ps1
-.\out\Release\bc250ctl.exe selftest firmware\cyan_skillfish2_sdma.bin   # M3 + M2 + M4
+.\out\Release\bc250ctl.exe fulltest firmware   # M3 + M2 + M4 + M4b
 .\out\Release\bc250ctl.exe submit-test     # M5a
-.\out\Release\bc250demo.exe                # M6a, draws color bars with the GPU
-.\out\Release\bc250ctl.exe stop
+.\out\Release\bc250demo.exe                # M6a, color bars drawn by the GPU
+
+# B) experimental full WDDM driver (reboot between steps)
+.\scripts\install-kmd.ps1                  # as Administrator
+.\out\Release\bc250kmdtest.exe             # M6b: SDMA fill/copy (node 0), PM4 WRITE_DATA (node 1)
+.\scripts\uninstall-kmd.ps1                # back to BC250Display (works from Safe Mode)
 ```
 
-`selftest` can hang the GPU if a register sequence is wrong. The display keeps working in that case
-(scanout does not depend on SDMA), but reboot before trying again. Send the full output of
-`bc250ctl info` and `selftest` when reporting results.
+A wrong register sequence can hang the GPU. With `BC250Display` the display keeps working (scanout
+does not depend on SDMA/CP); reboot before trying again. `BC250Kmd` replaces the display driver: if the
+adapter fails to start you get the Microsoft Basic Display Adapter or a black screen, so keep
+`uninstall-kmd.ps1` at hand and know how to reach Safe Mode.
 
-## Known risks and open questions
+## Known gaps and risks
 
-- **GFXOFF**: if the SMU power-gates GFX while idle, GC registers read as `0` or `FFFFFFFF`.
-  `bc250ctl info` shows it; the fix is the SMU `DisallowGfxOff`-style message for this PMFW.
-- **Scratch window**: the driver uses VRAM offset 64–68 MiB through BAR0. If BAR0 is smaller
-  than 68 MiB or the carve-out is smaller, M2–M5 report `BC250_E_NOMEM`.
-- **Firmware load type**: Linux uses direct (non-PSP) loading for `cyan_skillfish2` by default,
-  which is what M4 does. Newer kernels can load through the PSP instead.
-- **IH and MMHUB**: the IH ring lives in VRAM and is written through MMHUB; the driver relies on the
-  MMHUB system aperture that the VBIOS programmed (shown by `bc250ctl info`).
+- **No user-mode D3D driver**: `BC250Kmd` registers no `UserModeDriverName`, so the Desktop Window
+  Manager cannot use the GPU; the desktop is expected to fall back to software composition.
+  Presents to the primary are copied by SDMA into the GOP scanout surface (no DCN flips, no vsync).
+- **GFXOFF**: M4b disables the RLC↔SMU handshake (`RLC_PG_CNTL[23]`) so GFX stays powered.
+  Before M4b, GC registers may read as `0`/`FFFFFFFF` if the SMU power-gated GFX.
+- **VRAM layout**: driver scratch at 64–72 MiB, `BC250Kmd` VRAM segment from 128 MiB to the end of
+  BAR0/carve-out; BAR0 and the carve-out must be large enough (`bc250ctl info` shows both).
+- **VMID0 only**: every context shares one GPU address space (no per-process page tables yet), so
+  any submitted command buffer can reach all VRAM and GART memory. Fine for bring-up, not for
+  untrusted code.
+- **CP**: graphics ring only, no compute (MEC/HQD), no SH_MEM/VMID setup, no shader dispatch yet.
+- **Paging**: VRAM↔system transfers are done with the CPU after waiting for SDMA idle.
 
-## What M5b (full WDDM render driver) needs
+## What M6c (Mesa RADV on Windows) still needs
 
-Switching from `DxgkInitializeDisplayOnlyDriver` to `DxgkInitialize` with a full
-`DRIVER_INITIALIZATION_DATA`:
+RADV already supports gfx1013. On top of `libbc250wddm`:
 
-1. **Memory model**: report segments in `DxgkDdiQueryAdapterInfo(DXGKQAITYPE_QUERYSEGMENT4)`:
-   a CPU-visible VRAM segment (the carve-out through BAR0) and an aperture segment backed by the
-   M3 GART. `DxgkDdiBuildPagingBuffer` emits SDMA COPY/FILL packets (already used in M5a).
-2. **Submission**: `DxgkDdiSubmitCommand` = M5a `SubmitIb` without the CPU wait; the trap
-   interrupt calls `DxgkCbNotifyInterrupt(DXGK_INTERRUPT_DMA_COMPLETED)` from the ISR and
-   `DxgkCbNotifyDpc` from the DPC. `DxgkDdiPatch`, `DxgkDdiPreemptCommand`,
-   `DxgkDdiResetFromTimeout` / `RestartFromTimeout` (halt + reload SDMA).
-3. **Contexts/devices/allocations**: `CreateDevice`, `CreateContext`, `CreateAllocation`,
-   `OpenAllocation`, `DescribeAllocation`, `GetStandardAllocationDriverData`.
-4. **Display**: keep scanout on the GOP surface first (copy present), then program DCN 2.0.1
-   (`drivers/gpu/drm/amd/display` in Linux) for real mode setting and flips.
-5. **Graphics/compute engine**: RLC + CP (PFP/ME/CE/MEC) bring-up from `gfx_v10_0.c`
-   (`cyan_skillfish2_{rlc,pfp,me,ce,mec}.bin`, downloaded by `get-firmware.ps1`), golden
-   registers, clear state, then a compute queue (MQD/HQD). Shaders need this; SDMA only moves memory.
-6. A user-mode driver must be registered in the INF (`UserModeDriverName`), otherwise the
-   Desktop Window Manager cannot use the adapter.
+| `radeon_winsys` | `libbc250wddm` |
+|---|---|
+| `buffer_create` / `buffer_destroy` | `bc250w_bo_create` / `bc250w_bo_destroy` |
+| `buffer_map` / `buffer_unmap` | `bc250w_bo_map` / `bc250w_bo_unmap` |
+| `ctx_create` | `bc250w_ctx_create(node)` |
+| `cs_add_buffer`, relocations | `bc250w_use_bo` / `bc250w_emit_addr` (patch list) |
+| `cs_submit` | `bc250w_submit` (`D3DKMTRender`) |
+| `ctx_wait_idle`, fences | `D3DKMTLock` today; WDDM monitored fences need a WDDM 2.x KMD |
 
-## What M6b (Mesa RADV) needs
-
-RADV already supports gfx1013. A Windows port needs a new winsys
-(`src/amd/vulkan/winsys/`) implementing `radeon_winsys` on top of D3DKMT:
-`buffer_create/map` → `D3DKMTCreateAllocation`/`D3DKMTLock2`, `cs_submit` → `D3DKMTSubmitCommand`,
-fences → WDDM monitored fences, plus the PM4 path on the compute/graphics queue from M5b step 5.
-`libbc250` is the prototype of that layer: it already builds and submits command buffers.
+Kernel work before RADV can run shaders: compute queue (MEC firmware, HQD/MQD), SH_MEM_CONFIG and
+APE bases, per-process VMIDs with multi-level page tables (WDDM 2.0 GpuMmu), and a Windows build of
+Mesa with the new winsys (`src/amd/vulkan/winsys/`), the RADV ICD JSON and loader registration.
