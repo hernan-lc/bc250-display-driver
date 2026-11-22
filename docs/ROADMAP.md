@@ -12,7 +12,8 @@ experimental `BC250Kmd` driver), so a fresh install of `BC250Display` behaves li
 | M3 | GCVM VMID0: system aperture + flat 256 MiB GART | ✅ | ✅ SDMA writes a system page through the GART | `bc250ctl fulltest` |
 | M4c | Firmware loading through the **PSP** (KM ring, TMR, LOAD_IP_FW) | ✅ | ✅ SDMA0, CE, PFP, ME, RLC loaded | `bc250ctl fulltest` |
 | M4 | SDMA0 ring: WRITE_LINEAR / FENCE / TRAP | ✅ | ✅ 79 µs | `bc250ctl fulltest` |
-| M4b | RLC + CP graphics ring, PM4 | ✅ | ⚠️ microcode runs, ring not fetched yet | `bc250ctl fulltest` |
+| M4b | RLC + CP graphics ring, PM4 | ✅ | ✅ SET_UCONFIG_REG + WRITE_DATA (11 µs) | `bc250ctl fulltest` |
+| M4d | MEC compute queue (HQD), MEC firmware via PSP | ✅ | ✅ WRITE_DATA + RELEASE_MEM (26 µs) | `bc250ctl fulltest` |
 | M5a | Indirect buffers + fences; GPU fill into the scanout | ✅ | ✅ rectangle drawn on screen | `bc250ctl submit-test`, `fill-rect` |
 | M5b | `BC250Kmd.sys`: full WDDM 1.2 driver | ✅ | ❌ not installed yet | `install-kmd.ps1` + `bc250kmdtest` |
 | M6a | `libbc250` (escape API) + `bc250demo` | ✅ | ✅ fill+copy 64 KiB, color bars | `bc250demo` |
