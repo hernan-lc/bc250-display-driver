@@ -1123,7 +1123,8 @@ NTSTATUS BC250_GPU::KmdBringUp()
     BOOLEAN HaveCp = NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_rlc.bin", BC250_FW_RLC)) &&
                      NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_pfp.bin", BC250_FW_PFP)) &&
                      NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_me.bin",  BC250_FW_ME)) &&
-                     NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_ce.bin",  BC250_FW_CE));
+                     NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_ce.bin",  BC250_FW_CE)) &&
+                     NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_mec.bin", BC250_FW_MEC));   // the gfx CP needs the MEC loaded too
     ExAcquireFastMutex(&m_Lock);
     St = GartInit();
     if (NT_SUCCESS(St)) St = IhInit();

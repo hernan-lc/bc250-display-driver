@@ -25,8 +25,8 @@ if ((Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control).SystemStartOptions
 $fwDir = Join-Path $env:SystemRoot 'System32\drivers\bc250'
 New-Item -ItemType Directory -Force $fwDir | Out-Null
 Copy-Item $Firmware $fwDir -Force
-# graphics ring (optional): RLC + PFP + ME + CE next to the SDMA image
-foreach ($n in 'rlc','pfp','me','ce') {
+# graphics ring (optional): RLC + PFP + ME + CE + MEC next to the SDMA image
+foreach ($n in 'rlc','pfp','me','ce','mec') {
   $cp = Join-Path (Split-Path $Firmware) "cyan_skillfish2_$n.bin"
   if (Test-Path $cp) { Copy-Item $cp $fwDir -Force }
 }
