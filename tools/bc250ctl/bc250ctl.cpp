@@ -217,7 +217,7 @@ static int CmdPspLoad(const char* Dir)
     static const struct { const char* Name; bc_u32 Engine; } Files[] = {
         { "cyan_skillfish2_sdma.bin", BC250_FW_SDMA0 }, { "cyan_skillfish2_rlc.bin", BC250_FW_RLC },
         { "cyan_skillfish2_pfp.bin", BC250_FW_PFP },   { "cyan_skillfish2_me.bin", BC250_FW_ME },
-        { "cyan_skillfish2_ce.bin", BC250_FW_CE } };
+        { "cyan_skillfish2_ce.bin", BC250_FW_CE },     { "cyan_skillfish2_mec.bin", BC250_FW_MEC } };
     for (const auto& F : Files)
     {
         char Path[MAX_PATH];
@@ -227,11 +227,24 @@ static int CmdPspLoad(const char* Dir)
     BC250_ESCAPE* e = NewEsc(BC250_CMD_PSP_LOAD);
     if (!Escape(g_Adapter, *e)) return 1;
     const BC250_TEST& t = e->u.Test;
-    static const char* Steps[] = { "", "ring + TMR", "SDMA0", "CP_CE", "CP_PFP", "CP_ME", "RLC_G" };
-    if (e->Header.Status == BC250_OK) printf("psp-load     OK (SDMA0, CE, PFP, ME, RLC loaded by the PSP)\n");
-    else printf("psp-load     FAILED at %s: %s\n", t.Step < 7 ? Steps[t.Step] : "?", StatusName(e->Header.Status));
+    static const char* Steps[] = { "", "ring + TMR", "SDMA0", "CP_CE", "CP_PFP", "CP_ME", "RLC_G", "CP_MEC", "CP_MEC_JT" };
+    if (e->Header.Status == BC250_OK) printf("psp-load     OK (SDMA0, CE, PFP, ME, RLC, MEC loaded by the PSP)\n");
+    else printf("psp-load     FAILED at %s: %s\n", t.Step < 9 ? Steps[t.Step] : "?", StatusName(e->Header.Status));
     printf("  last PSP cmd %u status %08X  C2PMSG_64 %08X wptr %X  sOS %08X  loaded mask %X\n",
            t.Rptr, t.Observed, t.SdmaStatus, t.Wptr, t.FaultStatus, t.TrapsBefore);
+    return e->Header.Status == BC250_OK ? 0 : 2;
+}
+
+static int CmdMecTest()
+{
+    BC250_ESCAPE* e = NewEsc(BC250_CMD_MEC_TEST);
+    if (!Escape(g_Adapter, *e)) return 1;
+    const BC250_TEST& t = e->u.Test;
+    static const char* Steps[] = { "", "PM4 WRITE_DATA", "PM4 RELEASE_MEM fence" };
+    if (e->Header.Status == BC250_OK) printf("mec-test     PASSED (%u us)\n", t.ElapsedUs);
+    else printf("mec-test     FAILED at step %u (%s): %s\n", t.Step, t.Step < 3 ? Steps[t.Step] : "?", StatusName(e->Header.Status));
+    printf("  expected %08X observed %08X  rptr %X wptr %X  CPC_STATUS %08X  MEC1 IP %X\n",
+           t.Expected, t.Observed, t.Rptr, t.Wptr, t.SdmaStatus, t.FaultStatus);
     return e->Header.Status == BC250_OK ? 0 : 2;
 }
 
@@ -313,6 +326,8 @@ int main(int argc, char** argv)
     if (!_stricmp(c, "sdma-test")) return CmdSdmaTest();
     if (!_stricmp(c, "cp-start") && argc >= 3) return CmdCpStart(argv[2]);
     if (!_stricmp(c, "cp-test")) return CmdCpTest();
+    if (!_stricmp(c, "mec-start")) return Run(NewEsc(BC250_CMD_MEC_START), "mec-start");
+    if (!_stricmp(c, "mec-test")) return CmdMecTest();
     if (!_stricmp(c, "psp-load") && argc >= 3) return CmdPspLoad(argv[2]);
     if (!_stricmp(c, "fulltest") && argc >= 3)
     {
@@ -328,11 +343,14 @@ int main(int argc, char** argv)
         printf("== M4 SDMA ==\n");
         if (CmdSdmaStart(Sdma)) return 2;
         if (CmdSdmaTest()) return 2;
+        printf("== M4d MEC (compute queue) ==\n");
+        if (Run(NewEsc(BC250_CMD_MEC_START), "mec-start")) return 2;
+        int rm = CmdMecTest();
         printf("== M4b CP (graphics ring) ==\n");
         if (Run(NewEsc(BC250_CMD_CP_START), "cp-start")) return 2;
         int r = CmdCpTest();
         CmdIhStatus();
-        return r;
+        return rm ? rm : r;
     }
     if (!_stricmp(c, "sdma-start") && argc >= 3) return CmdSdmaStart(argv[2]);
     if (!_stricmp(c, "fill-rect") && argc >= 7)

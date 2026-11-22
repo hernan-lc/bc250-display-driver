@@ -25,6 +25,8 @@
 #define GFX_FW_TYPE_CP_ME               1u
 #define GFX_FW_TYPE_CP_PFP              2u
 #define GFX_FW_TYPE_CP_CE               3u
+#define GFX_FW_TYPE_CP_MEC              4u
+#define GFX_FW_TYPE_CP_MEC_ME1          5u
 #define GFX_FW_TYPE_RLC_G               8u
 #define GFX_FW_TYPE_SDMA0               9u
 
@@ -148,10 +150,17 @@ NTSTATUS BC250_GPU::PspLoadFw(ULONG Engine, ULONG FwType)
     ULONG Bytes = *(const ULONG*)(Fw + 20), Off = *(const ULONG*)(Fw + 24);
     if (Off >= FwSize || Bytes > FwSize - Off || Bytes > BC250_PSP_FW_MAX || (Bytes & 3)) return STATUS_INVALID_IMAGE_FORMAT;
 
+    return PspLoadBlob(Fw + Off, Bytes, FwType);
+}
+
+NTSTATUS BC250_GPU::PspLoadBlob(const UCHAR* Data, ULONG Bytes, ULONG FwType)
+{
+    PAGED_CODE();
+    if (!Bytes || Bytes > BC250_PSP_FW_MAX || (Bytes & 3)) return STATUS_INVALID_IMAGE_FORMAT;
     // psp_copy_fw: stage the ucode in a 1 MiB-aligned buffer
-    const ULONG* Code = (const ULONG*)(Fw + Off);
+    const ULONG* Code = (const ULONG*)Data;
     for (ULONG i = 0; i < Bytes / 4; ++i) ScrWrite(BC250_SCR_PSP_FW + i * 4, Code[i]);
-    for (ULONG o = (Bytes + 3) & ~3u; o < ((Bytes + 0xFFF) & ~0xFFFu); o += 4) ScrWrite(BC250_SCR_PSP_FW + o, 0);
+    for (ULONG o = Bytes; o < ((Bytes + 0xFFF) & ~0xFFFu); o += 4) ScrWrite(BC250_SCR_PSP_FW + o, 0);
     HdpFlush();
     ULONGLONG FwMc = ScrMc(BC250_SCR_PSP_FW);
     ULONG Cmd[4] = { (ULONG)FwMc, (ULONG)(FwMc >> 32), Bytes, FwType };
@@ -171,6 +180,7 @@ NTSTATUS BC250_GPU::PspLoadAll(BC250_TEST* t)
     Rmw(BC250_SDMA0_F32_CNTL, 0, BC250_SDMA0_F32_CNTL__HALT_MASK);
     Rmw(BC250_CP_ME_CNTL, 0, BC250_CP_ME_CNTL__ME_HALT_MASK | BC250_CP_ME_CNTL__PFP_HALT_MASK | BC250_CP_ME_CNTL__CE_HALT_MASK);
     Rmw(BC250_RLC_CNTL, BC250_RLC_CNTL__RLC_ENABLE_F32_MASK, 0);
+    Wreg(BC250_CP_MEC_CNTL, BC250_CP_MEC_CNTL__MEC_ME1_HALT_MASK | BC250_CP_MEC_CNTL__MEC_ME2_HALT_MASK);
     m_CpReady = FALSE;
 
     // CP/RLC may have been started earlier with unusable microcode: soft-reset them before the PSP
@@ -193,6 +203,26 @@ NTSTATUS BC250_GPU::PspLoadAll(BC250_TEST* t)
     t->Step = 5; if (m_FwCp[BC250_FW_ME] && !NT_SUCCESS(St = PspLoadFw(BC250_FW_ME, GFX_FW_TYPE_CP_ME))) goto out;
     t->Step = 6; if (m_FwCp[BC250_FW_RLC] && !NT_SUCCESS(St = PspLoadFw(BC250_FW_RLC, GFX_FW_TYPE_RLC_G))) goto out;
     for (ULONG e = BC250_FW_RLC; e <= BC250_FW_CE; ++e) if (m_FwCp[e]) m_PspLoaded |= 1u << e;
+    // MEC: main image (ucode minus jump table) + jump table (amdgpu CP_MEC1 / CP_MEC1_JT)
+    if (m_FwCp[BC250_FW_MEC])
+    {
+        const UCHAR* Fw = m_FwCp[BC250_FW_MEC];
+        ULONG FwSize = m_FwCpSize[BC250_FW_MEC];
+        ULONG Bytes = *(const ULONG*)(Fw + 20), Off = *(const ULONG*)(Fw + 24);
+        ULONG JtOff = *(const ULONG*)(Fw + 36), JtSize = *(const ULONG*)(Fw + 40);
+        St = STATUS_INVALID_IMAGE_FORMAT;
+        t->Step = 7;
+        if (Off < FwSize && Bytes <= FwSize - Off && JtSize * 4 <= Bytes && (ULONGLONG)(JtOff + JtSize) * 4 <= Bytes)
+        {
+            St = PspLoadBlob(Fw + Off, Bytes - JtSize * 4, GFX_FW_TYPE_CP_MEC);
+            t->Step = 8;
+            if (NT_SUCCESS(St)) St = PspLoadBlob(Fw + Off + JtOff * 4, JtSize * 4, GFX_FW_TYPE_CP_MEC_ME1);
+        }
+        if (!NT_SUCCESS(St)) goto out;
+        m_PspLoaded |= 1u << BC250_FW_MEC;
+    }
+    Wreg(BC250_CP_MEC_CNTL, BC250_CP_MEC_CNTL__MEC_ME1_HALT_MASK | BC250_CP_MEC_CNTL__MEC_ME2_HALT_MASK);  // keep halted until MecStart
+    m_MecReady = FALSE;
     t->Step = 100;
 out:
     t->Expected = 0;

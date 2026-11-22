@@ -42,6 +42,11 @@
 #define BC250_SCR_PSP_FENCE    0x522000u
 #define BC250_SCR_PSP_FW       0x600000u   // 1 MiB-aligned firmware staging
 #define BC250_PSP_FW_MAX       0x100000u
+#define BC250_SCR_MEC_MQD      0x523000u   // v10_compute_mqd (4 KiB)
+#define BC250_SCR_MEC_EOP      0x524000u   // EOP buffer (2 KiB, 256-byte aligned)
+#define BC250_SCR_MEC_RING     0x530000u   // 64 KiB compute ring
+#define BC250_SCR_MEC_WB       0x540000u   // rptr report (+0), wptr poll (+8), tests (+0x100)
+#define BC250_MEC_RING_SIZE    0x10000u
 #define BC250_PSP_TMR_OFFSET   0x04800000ull   // VRAM offset 72 MiB, 4 MiB (naturally aligned)
 #define BC250_PSP_TMR_SIZE     0x00400000ull
 #define BC250_IH_CLIENT_GRBM_CP 0x14u
@@ -133,6 +138,13 @@ private:
     NTSTATUS PspLoadFw(ULONG Engine, ULONG FwType);
     NTSTATUS PspLoadAll(_Out_ BC250_TEST* pTest);
     BOOLEAN  PspWait(ULONG Reg, ULONG Value, ULONG Mask, ULONG TimeoutUs);
+    NTSTATUS PspLoadBlob(_In_reads_bytes_(Bytes) const UCHAR* Data, ULONG Bytes, ULONG FwType);
+    // --- M4d: MEC compute queue ---
+    VOID     GrbmSelect(ULONG Me, ULONG Pipe, ULONG Queue);
+    NTSTATUS MecStart();
+    NTSTATUS MecTest(_Out_ BC250_TEST* pTest);
+    VOID     MecWrite(ULONG Dw);
+    VOID     MecCommit();
     NTSTATUS SdmaStart();
     VOID     SdmaHalt();
     VOID     SdmaWrite(ULONG Dw);
@@ -186,6 +198,8 @@ private:
     ULONG     m_FwCpSize[BC250_FW_COUNT];
     BOOLEAN   m_CpReady;
     BOOLEAN   m_PspReady;
+    BOOLEAN   m_MecReady;
+    ULONG     m_MecWptr;
     ULONG     m_PspFence, m_PspLastStatus, m_PspLastCmd;
     ULONG     m_PspLoaded;              // bit per BC250_FW_* loaded through the PSP
     ULONG     m_CpWptr;                 // dwords

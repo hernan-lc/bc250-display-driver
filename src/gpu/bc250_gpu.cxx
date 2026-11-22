@@ -267,6 +267,12 @@ void BC250_GPU::Stop()
         Rmw(BC250_RLC_CNTL, BC250_RLC_CNTL__RLC_ENABLE_F32_MASK, 0);
     }
     m_CpReady = FALSE;
+    if (m_MecReady)
+    {
+        Rmw(BC250_CP_PQ_WPTR_POLL_CNTL, BC250_CP_PQ_WPTR_POLL_CNTL__EN_MASK, 0);
+        Wreg(BC250_CP_MEC_CNTL, BC250_CP_MEC_CNTL__MEC_ME1_HALT_MASK | BC250_CP_MEC_CNTL__MEC_ME2_HALT_MASK);
+        m_MecReady = FALSE;
+    }
     PspShutdown();                       // engines are halted: release TMR and KM ring
     for (ULONG i = 0; i < BC250_FW_COUNT; ++i)
         if (m_FwCp[i]) { ExFreePoolWithTag(m_FwCp[i], BC250_TAG); m_FwCp[i] = NULL; m_FwCpSize[i] = 0; }
@@ -1036,6 +1042,8 @@ NTSTATUS BC250_GPU::Escape(VOID* pData, UINT Size)
     case BC250_CMD_CP_START:    R = ToEsc(CpStart()); break;
     case BC250_CMD_CP_TEST:     R = ToEsc(CpTest(&e->u.Test)); break;
     case BC250_CMD_PSP_LOAD:    R = ToEsc(PspLoadAll(&e->u.Test)); break;
+    case BC250_CMD_MEC_START:   R = ToEsc(MecStart()); break;
+    case BC250_CMD_MEC_TEST:    R = ToEsc(MecTest(&e->u.Test)); break;
     default:
         R = BC250_E_BADCMD;
     }

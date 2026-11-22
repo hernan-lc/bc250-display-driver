@@ -31,7 +31,9 @@ enum BC250_CMD {
     BC250_CMD_FILL_RECT      = 15,
     BC250_CMD_CP_START       = 16,  // M4b DEV: RLC + CP (PFP/ME/CE) direct load, graphics ring 0, clear state
     BC250_CMD_CP_TEST        = 17,
-    BC250_CMD_PSP_LOAD       = 18,  // M4c DEV: PSP ring + TMR + LOAD_IP_FW for every uploaded firmware  // M4b DEV: PM4 SET_UCONFIG_REG(SCRATCH_REG0) + WRITE_DATA to memory  // M5 DEV: GPU (SDMA CONSTANT_FILL) draws a rectangle into the scanout buffer
+    BC250_CMD_PSP_LOAD       = 18,
+    BC250_CMD_MEC_START      = 19,  // M4d DEV: compute queue ME1/pipe0/queue0 (HQD programmed directly)
+    BC250_CMD_MEC_TEST       = 20,  // M4d DEV: PM4 WRITE_DATA + RELEASE_MEM on the compute queue  // M4c DEV: PSP ring + TMR + LOAD_IP_FW for every uploaded firmware  // M4b DEV: PM4 SET_UCONFIG_REG(SCRATCH_REG0) + WRITE_DATA to memory  // M5 DEV: GPU (SDMA CONSTANT_FILL) draws a rectangle into the scanout buffer
 };
 
 // Status codes returned in BC250_ESC_HEADER::Status (0 = OK, negative = error)
@@ -51,7 +53,8 @@ enum BC250_CMD {
 #define BC250_FW_PFP          2u
 #define BC250_FW_ME           3u
 #define BC250_FW_CE           4u
-#define BC250_FW_COUNT        5u
+#define BC250_FW_MEC          5u
+#define BC250_FW_COUNT        6u
 #define BC250_FW_CHUNK        4096u
 
 #pragma pack(push, 8)
