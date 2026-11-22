@@ -9,7 +9,7 @@ param([string]$Dest = (Join-Path (Split-Path -Parent $PSScriptRoot) 'firmware'))
 $ErrorActionPreference = 'Stop'
 $base = 'https://gitlab.com/kernel-firmware/linux-firmware/-/raw/main'
 $files = @(
-  'LICENSE.amdgpu',
+  'LICENSES/LICENSE.amdgpu',
   'amdgpu/cyan_skillfish2_sdma.bin',
   'amdgpu/cyan_skillfish2_sdma1.bin',
   # needed for the future CP/RLC bring-up (graphics/compute queues)

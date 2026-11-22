@@ -30,7 +30,8 @@ enum BC250_CMD {
     BC250_CMD_SUBMIT_IB      = 14,  // M5 DEV: run a user SDMA indirect buffer, wait for its fence
     BC250_CMD_FILL_RECT      = 15,
     BC250_CMD_CP_START       = 16,  // M4b DEV: RLC + CP (PFP/ME/CE) direct load, graphics ring 0, clear state
-    BC250_CMD_CP_TEST        = 17,  // M4b DEV: PM4 SET_UCONFIG_REG(SCRATCH_REG0) + WRITE_DATA to memory  // M5 DEV: GPU (SDMA CONSTANT_FILL) draws a rectangle into the scanout buffer
+    BC250_CMD_CP_TEST        = 17,
+    BC250_CMD_PSP_LOAD       = 18,  // M4c DEV: PSP ring + TMR + LOAD_IP_FW for every uploaded firmware  // M4b DEV: PM4 SET_UCONFIG_REG(SCRATCH_REG0) + WRITE_DATA to memory  // M5 DEV: GPU (SDMA CONSTANT_FILL) draws a rectangle into the scanout buffer
 };
 
 // Status codes returned in BC250_ESC_HEADER::Status (0 = OK, negative = error)

@@ -235,6 +235,14 @@
 #define BC250_MP1_SMN_C2PMSG_82                                0x16292u
 #define BC250_MP1_SMN_C2PMSG_90                                0x1629Au
 
+// ---- MP0 ----
+#define BC250_MP0_SMN_C2PMSG_64                                0x16080u
+#define BC250_MP0_SMN_C2PMSG_67                                0x16083u
+#define BC250_MP0_SMN_C2PMSG_69                                0x16085u
+#define BC250_MP0_SMN_C2PMSG_70                                0x16086u
+#define BC250_MP0_SMN_C2PMSG_71                                0x16087u
+#define BC250_MP0_SMN_C2PMSG_81                                0x16091u
+
 // ---- THM ----
 #define BC250_CG_MULT_THERMAL_STATUS                           0x1665Fu
 #define BC250_CG_MULT_THERMAL_STATUS__CTF_TEMP__SHIFT                          0x9u

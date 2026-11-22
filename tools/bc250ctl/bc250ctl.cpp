@@ -212,6 +212,29 @@ static int CmdCpStart(const char* Dir)
     return Run(NewEsc(BC250_CMD_CP_START), "cp-start");
 }
 
+static int CmdPspLoad(const char* Dir)
+{
+    static const struct { const char* Name; bc_u32 Engine; } Files[] = {
+        { "cyan_skillfish2_sdma.bin", BC250_FW_SDMA0 }, { "cyan_skillfish2_rlc.bin", BC250_FW_RLC },
+        { "cyan_skillfish2_pfp.bin", BC250_FW_PFP },   { "cyan_skillfish2_me.bin", BC250_FW_ME },
+        { "cyan_skillfish2_ce.bin", BC250_FW_CE } };
+    for (const auto& F : Files)
+    {
+        char Path[MAX_PATH];
+        snprintf(Path, sizeof(Path), "%s\\%s", Dir, F.Name);
+        if (UploadFw(Path, F.Engine)) return 2;
+    }
+    BC250_ESCAPE* e = NewEsc(BC250_CMD_PSP_LOAD);
+    if (!Escape(g_Adapter, *e)) return 1;
+    const BC250_TEST& t = e->u.Test;
+    static const char* Steps[] = { "", "ring + TMR", "SDMA0", "CP_CE", "CP_PFP", "CP_ME", "RLC_G" };
+    if (e->Header.Status == BC250_OK) printf("psp-load     OK (SDMA0, CE, PFP, ME, RLC loaded by the PSP)\n");
+    else printf("psp-load     FAILED at %s: %s\n", t.Step < 7 ? Steps[t.Step] : "?", StatusName(e->Header.Status));
+    printf("  last PSP cmd %u status %08X  C2PMSG_64 %08X wptr %X  sOS %08X  loaded mask %X\n",
+           t.Rptr, t.Observed, t.SdmaStatus, t.Wptr, t.FaultStatus, t.TrapsBefore);
+    return e->Header.Status == BC250_OK ? 0 : 2;
+}
+
 static int CmdCpTest()
 {
     BC250_ESCAPE* e = NewEsc(BC250_CMD_CP_TEST);
@@ -290,6 +313,7 @@ int main(int argc, char** argv)
     if (!_stricmp(c, "sdma-test")) return CmdSdmaTest();
     if (!_stricmp(c, "cp-start") && argc >= 3) return CmdCpStart(argv[2]);
     if (!_stricmp(c, "cp-test")) return CmdCpTest();
+    if (!_stricmp(c, "psp-load") && argc >= 3) return CmdPspLoad(argv[2]);
     if (!_stricmp(c, "fulltest") && argc >= 3)
     {
         char Sdma[MAX_PATH];
@@ -299,11 +323,13 @@ int main(int argc, char** argv)
         if (Run(NewEsc(BC250_CMD_GART_TEST), "gart-map")) return 2;
         printf("== M2 IH ==\n");
         if (Run(NewEsc(BC250_CMD_IH_INIT), "ih-init")) return 2;
+        printf("== M4c PSP firmware load ==\n");
+        if (CmdPspLoad(argv[2])) return 2;
         printf("== M4 SDMA ==\n");
         if (CmdSdmaStart(Sdma)) return 2;
         if (CmdSdmaTest()) return 2;
         printf("== M4b CP (graphics ring) ==\n");
-        if (CmdCpStart(argv[2])) return 2;
+        if (Run(NewEsc(BC250_CMD_CP_START), "cp-start")) return 2;
         int r = CmdCpTest();
         CmdIhStatus();
         return r;

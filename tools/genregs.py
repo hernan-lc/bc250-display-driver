@@ -14,6 +14,7 @@ BASES = {
  'OSSSYS': [0x000010A0],
  'NBIO':   [0x00000000, 0x00000014, 0x00000D20, 0x00010400],
  'MP1':    [0x00016000],
+ 'MP0':    [0x00016000],
  'THM':    [0x00016600],
  'HDP':    [0x00000F20],
 }
@@ -91,6 +92,8 @@ groups = [
  ('HDP', 'include_asic_reg_hdp_hdp_5_0_0_offset.h', None, ['HDP_READ_CACHE_INVALIDATE'], []),
  ('MP1', 'include_asic_reg_mp_mp_11_0_offset.h', None, [
    'MP1_SMN_C2PMSG_66','MP1_SMN_C2PMSG_82','MP1_SMN_C2PMSG_90'], []),
+ ('MP0', 'include_asic_reg_mp_mp_11_0_offset.h', None, [
+   'MP0_SMN_C2PMSG_64','MP0_SMN_C2PMSG_67','MP0_SMN_C2PMSG_69','MP0_SMN_C2PMSG_70','MP0_SMN_C2PMSG_71','MP0_SMN_C2PMSG_81'], []),
  ('THM', 'include_asic_reg_thm_thm_11_0_2_offset.h', 'include_asic_reg_thm_thm_11_0_2_sh_mask.h', [
    'CG_MULT_THERMAL_STATUS'], ['CG_MULT_THERMAL_STATUS__CTF_TEMP__SHIFT','CG_MULT_THERMAL_STATUS__CTF_TEMP_MASK']),
 ]

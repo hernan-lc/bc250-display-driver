@@ -37,6 +37,13 @@
 #define BC250_SCR_CP_WB        0x510000u   // rptr writeback (+0), wptr poll (+8), WRITE_DATA test (+0x100)
 #define BC250_CP_RING_SIZE     0x10000u
 #define BC250_SCR_CP_FENCE     (BC250_SCR_CP_WB + 0x200u)
+#define BC250_SCR_PSP_RING     0x520000u   // PSP KM ring (4 KiB)
+#define BC250_SCR_PSP_CMD      0x521000u   // psp_gfx_cmd_resp (1 KiB used)
+#define BC250_SCR_PSP_FENCE    0x522000u
+#define BC250_SCR_PSP_FW       0x600000u   // 1 MiB-aligned firmware staging
+#define BC250_PSP_FW_MAX       0x100000u
+#define BC250_PSP_TMR_OFFSET   0x04800000ull   // VRAM offset 72 MiB, 4 MiB (naturally aligned)
+#define BC250_PSP_TMR_SIZE     0x00400000ull
 #define BC250_IH_CLIENT_GRBM_CP 0x14u
 #define BC250_IH_SRC_CP_EOP    181u
 #define BC250_FW_DIR           L"\\SystemRoot\\System32\\drivers\\bc250\\"
@@ -119,6 +126,13 @@ private:
     VOID     CpWrite(ULONG Dw);
     VOID     CpCommit();
     NTSTATUS CpTest(_Out_ BC250_TEST* pTest);
+    // --- M4c: PSP firmware loading ---
+    NTSTATUS PspInit();
+    VOID     PspShutdown();
+    NTSTATUS PspCommand(ULONG CmdId, _In_reads_(ArgCount) const ULONG* Args, ULONG ArgCount);
+    NTSTATUS PspLoadFw(ULONG Engine, ULONG FwType);
+    NTSTATUS PspLoadAll(_Out_ BC250_TEST* pTest);
+    BOOLEAN  PspWait(ULONG Reg, ULONG Value, ULONG Mask, ULONG TimeoutUs);
     NTSTATUS SdmaStart();
     VOID     SdmaHalt();
     VOID     SdmaWrite(ULONG Dw);
@@ -161,7 +175,8 @@ private:
     volatile LONG64    m_IntCount, m_IhEntries, m_SdmaTraps;
     volatile LONG      m_LastClient, m_LastSrc, m_LastSrcData, m_IhOverflow;
 
-    BOOLEAN   m_KmdMode;                // full WDDM driver: notify dxgkrnl from the ISR
+    BOOLEAN   m_KmdMode;
+    BOOLEAN   m_Msi;                    // interrupt resource is message-signaled                // full WDDM driver: notify dxgkrnl from the ISR
     NTSTATUS  LoadFirmwareFile(_In_ PCWSTR Name, ULONG Engine);   // file name under BC250_FW_DIR
 
     // SDMA
@@ -170,6 +185,9 @@ private:
     UCHAR*    m_FwCp[BC250_FW_COUNT];   // RLC, PFP, ME, CE (index = BC250_FW_*)
     ULONG     m_FwCpSize[BC250_FW_COUNT];
     BOOLEAN   m_CpReady;
+    BOOLEAN   m_PspReady;
+    ULONG     m_PspFence, m_PspLastStatus, m_PspLastCmd;
+    ULONG     m_PspLoaded;              // bit per BC250_FW_* loaded through the PSP
     ULONG     m_CpWptr;                 // dwords
     ULONG     m_SdmaWptr;               // in dwords
 };

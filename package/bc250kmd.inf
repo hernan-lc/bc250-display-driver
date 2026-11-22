@@ -34,6 +34,14 @@ BC250Kmd.sys = 1
 FeatureScore = FA
 CopyFiles    = BC250Kmd.Files
 
+[BC250Kmd_Inst.HW]
+AddReg = BC250Kmd_Msi.AddReg
+
+[BC250Kmd_Msi.AddReg]
+; The GPU signals interrupts with MSI (it does not raise the legacy INTx line)
+HKR, "Interrupt Management\MessageSignaledInterruptProperties", MSISupported, 0x00010001, 1
+HKR, "Interrupt Management\MessageSignaledInterruptProperties", MessageNumberLimit, 0x00010001, 1
+
 [BC250Kmd_Inst.Services]
 AddService = BC250Kmd, 0x00000002, BC250Kmd_Service_Inst, BC250Kmd_EventLog_Inst
 

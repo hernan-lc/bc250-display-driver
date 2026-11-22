@@ -175,7 +175,7 @@ VOID BC250_GPU::KmdSubmit(ULONGLONG IbMc, ULONG Dwords, ULONG FenceId)
         SdmaWrite(0);
     }
     ULONGLONG F = ScrMc(BC250_SCR_FENCE);
-    SdmaWrite(5u);                                       // SDMA_OP_FENCE
+    SdmaWrite(5u | (3u << 16));                          // SDMA_OP_FENCE, MTYPE=UC
     SdmaWrite((ULONG)F);
     SdmaWrite((ULONG)(F >> 32));
     SdmaWrite(FenceId);
@@ -220,6 +220,7 @@ void BC250_GPU::Start(const DXGKRNL_INTERFACE* pDxgk, const DXGK_DEVICE_INFO* pD
             for (ULONG i = 0; i < pPartial->Count; ++i)
             {
                 CM_PARTIAL_RESOURCE_DESCRIPTOR* d = (CM_PARTIAL_RESOURCE_DESCRIPTOR*)&pPartial->PartialDescriptors[i];
+                if (d->Type == CmResourceTypeInterrupt && (d->Flags & CM_RESOURCE_INTERRUPT_MESSAGE)) m_Msi = TRUE;
                 if (d->Type != CmResourceTypeMemory && d->Type != CmResourceTypeMemoryLarge) continue;
                 ULONGLONG Start = 0;
                 ULONGLONG Len = RtlCmDecodeMemIoResource(d, &Start);
@@ -261,8 +262,12 @@ void BC250_GPU::Stop()
     }
     if (m_Fw) { ExFreePoolWithTag(m_Fw, BC250_TAG); m_Fw = NULL; m_FwSize = 0; }
     if (m_CpReady)
+    {
         Rmw(BC250_CP_ME_CNTL, 0, BC250_CP_ME_CNTL__ME_HALT_MASK | BC250_CP_ME_CNTL__PFP_HALT_MASK | BC250_CP_ME_CNTL__CE_HALT_MASK);
+        Rmw(BC250_RLC_CNTL, BC250_RLC_CNTL__RLC_ENABLE_F32_MASK, 0);
+    }
     m_CpReady = FALSE;
+    PspShutdown();                       // engines are halted: release TMR and KM ring
     for (ULONG i = 0; i < BC250_FW_COUNT; ++i)
         if (m_FwCp[i]) { ExFreePoolWithTag(m_FwCp[i], BC250_TAG); m_FwCp[i] = NULL; m_FwCpSize[i] = 0; }
     if (m_Scratch) { MmUnmapIoSpace((PVOID)m_Scratch, (SIZE_T)BC250_SCRATCH_SIZE); m_Scratch = NULL; }
@@ -562,7 +567,8 @@ NTSTATUS BC250_GPU::IhInit()
          BC250_IH_RB_CNTL__WPTR_WRITEBACK_ENABLE_MASK | BC250_IH_RB_CNTL__MC_SNOOP_MASK;
     t &= ~(0x1Fu << BC250_IH_RB_CNTL__RB_SIZE__SHIFT);
     t |= Log2(BC250_IH_RING_SIZE / 4) << BC250_IH_RB_CNTL__RB_SIZE__SHIFT;
-    t &= ~BC250_IH_RB_CNTL__RPTR_REARM_MASK;      // line-based interrupts
+    // navi10_ih_enable_ring: RPTR_REARM = msi_enabled
+    if (m_Msi) t |= BC250_IH_RB_CNTL__RPTR_REARM_MASK; else t &= ~BC250_IH_RB_CNTL__RPTR_REARM_MASK;
     Wreg(BC250_IH_RB_CNTL, t);
 
     ULONGLONG Wb = ScrMc(BC250_SCR_IH_WPTR);
@@ -640,11 +646,14 @@ NTSTATUS BC250_GPU::SdmaStart()
     Rmw(BC250_SDMA0_GFX_RB_WPTR_POLL_CNTL, 0xfffffff7, 0x00403000);
     Rmw(BC250_SDMA0_UTCL1_PAGE, 0x007fffff, 0x004c5c00);
 
-    // direct microcode load
-    const ULONG* Code = (const ULONG*)(m_Fw + UcodeOffset);
-    Wreg(BC250_SDMA0_UCODE_ADDR, 0);
-    for (ULONG i = 0; i < UcodeBytes / 4; ++i) Wreg(BC250_SDMA0_UCODE_DATA, Code[i]);
-    Wreg(BC250_SDMA0_UCODE_ADDR, UcodeVersion);
+    // direct microcode load, unless the PSP already loaded it (cyan_skillfish2 protects the ucode port)
+    if (!(m_PspLoaded & (1u << BC250_FW_SDMA0)))
+    {
+        const ULONG* Code = (const ULONG*)(m_Fw + UcodeOffset);
+        Wreg(BC250_SDMA0_UCODE_ADDR, 0);
+        for (ULONG i = 0; i < UcodeBytes / 4; ++i) Wreg(BC250_SDMA0_UCODE_DATA, Code[i]);
+        Wreg(BC250_SDMA0_UCODE_ADDR, UcodeVersion);
+    }
 
     // unhalt + context switch (sdma_v5_0_enable / ctx_switch_enable)
     Rmw(BC250_SDMA0_F32_CNTL, BC250_SDMA0_F32_CNTL__HALT_MASK, 0);
@@ -792,7 +801,7 @@ NTSTATUS BC250_GPU::SdmaTest(BC250_TEST* t)
         ScrWrite(FenceSlot, 0);
         HdpFlush();
         ULONGLONG F = ScrMc(FenceSlot);
-        SdmaWrite(SDMA_HDR(SDMA_OP_FENCE, 0));
+        SdmaWrite(SDMA_HDR(SDMA_OP_FENCE, 0) | (3u << 16));   // MTYPE=UC: fence must reach memory
         SdmaWrite((ULONG)F);
         SdmaWrite((ULONG)(F >> 32));
         SdmaWrite(0x00000250);
@@ -862,7 +871,7 @@ NTSTATUS BC250_GPU::SubmitIb(const ULONG* pIb, ULONG Count, ULONG* pFence, ULONG
     SdmaWrite(0);
 
     ULONGLONG F = ScrMc(BC250_SCR_FENCE);
-    SdmaWrite(SDMA_HDR(SDMA_OP_FENCE, 0));
+    SdmaWrite(SDMA_HDR(SDMA_OP_FENCE, 0) | (3u << 16));   // MTYPE=UC: fence must reach memory
     SdmaWrite((ULONG)F);
     SdmaWrite((ULONG)(F >> 32));
     SdmaWrite(FenceValue);
@@ -1026,6 +1035,7 @@ NTSTATUS BC250_GPU::Escape(VOID* pData, UINT Size)
     case BC250_CMD_FILL_RECT:   R = ToEsc(FillRect(&e->u.Rect)); break;
     case BC250_CMD_CP_START:    R = ToEsc(CpStart()); break;
     case BC250_CMD_CP_TEST:     R = ToEsc(CpTest(&e->u.Test)); break;
+    case BC250_CMD_PSP_LOAD:    R = ToEsc(PspLoadAll(&e->u.Test)); break;
     default:
         R = BC250_E_BADCMD;
     }
@@ -1109,6 +1119,7 @@ NTSTATUS BC250_GPU::KmdBringUp()
     ExAcquireFastMutex(&m_Lock);
     St = GartInit();
     if (NT_SUCCESS(St)) St = IhInit();
+    if (NT_SUCCESS(St)) { BC250_TEST Psp; St = PspLoadAll(&Psp); }   // also loads CP firmware when present
     if (NT_SUCCESS(St)) St = SdmaStart();
     if (NT_SUCCESS(St) && HaveCp && NT_SUCCESS(CpStart()))
         Rmw(BC250_CP_INT_CNTL_RING0, 0, BC250_CP_INT_CNTL_RING0__TIME_STAMP_INT_ENABLE_MASK);   // EOP interrupts

@@ -114,10 +114,12 @@ NTSTATUS BC250_GPU::CpStart()
         else Rmw(g_GoldenGc[i][0], g_GoldenGc[i][1], g_GoldenGc[i][2] & g_GoldenGc[i][1]);
     }
 
-    // ---- RLC (gfx_v10_0_rlc_resume, direct load) ----
+    const BOOLEAN ViaPsp = (m_PspLoaded & (1u << BC250_FW_RLC)) != 0;   // PSP non-autoload path
+    // ---- RLC (gfx_v10_0_rlc_resume) ----
     Rmw(BC250_RLC_CNTL, BC250_RLC_CNTL__RLC_ENABLE_F32_MASK, 0);        // stop
     Wreg(BC250_RLC_CGCG_CGLS_CTRL, 0);                                  // no clock gating
     Wreg(BC250_RLC_PG_CNTL, 0);                                         // no power gating
+    if (!ViaPsp)
     {
         const UCHAR* Fw = m_FwCp[BC250_FW_RLC];
         ULONG Version = *(const ULONG*)(Fw + 16), Bytes = *(const ULONG*)(Fw + 20), Off = *(const ULONG*)(Fw + 24);
@@ -144,14 +146,14 @@ NTSTATUS BC250_GPU::CpStart()
     const ULONG Halt = BC250_CP_ME_CNTL__ME_HALT_MASK | BC250_CP_ME_CNTL__PFP_HALT_MASK | BC250_CP_ME_CNTL__CE_HALT_MASK;
     Rmw(BC250_CP_ME_CNTL, 0, Halt);
     for (ULONG i = 0; i < 100000 && Rreg(BC250_CP_STAT) != 0; ++i) KeStallExecutionProcessor(1);
-    NTSTATUS St;
-    St = CpLoadIc(BC250_FW_PFP, BC250_SCR_CP_PFP, BC250_CP_PFP_IC_OP_CNTL, BC250_CP_PFP_IC_BASE_CNTL, BC250_CP_PFP_IC_BASE_LO,
+    NTSTATUS St = STATUS_SUCCESS;
+    if (!ViaPsp) St = CpLoadIc(BC250_FW_PFP, BC250_SCR_CP_PFP, BC250_CP_PFP_IC_OP_CNTL, BC250_CP_PFP_IC_BASE_CNTL, BC250_CP_PFP_IC_BASE_LO,
                   BC250_CP_PFP_IC_BASE_HI, BC250_CP_HYP_PFP_UCODE_ADDR, BC250_CP_HYP_PFP_UCODE_DATA);
     if (!NT_SUCCESS(St)) return St;
-    St = CpLoadIc(BC250_FW_CE, BC250_SCR_CP_CE, BC250_CP_CE_IC_OP_CNTL, BC250_CP_CE_IC_BASE_CNTL, BC250_CP_CE_IC_BASE_LO,
+    if (!ViaPsp) St = CpLoadIc(BC250_FW_CE, BC250_SCR_CP_CE, BC250_CP_CE_IC_OP_CNTL, BC250_CP_CE_IC_BASE_CNTL, BC250_CP_CE_IC_BASE_LO,
                   BC250_CP_CE_IC_BASE_HI, BC250_CP_HYP_CE_UCODE_ADDR, BC250_CP_HYP_CE_UCODE_DATA);
     if (!NT_SUCCESS(St)) return St;
-    St = CpLoadIc(BC250_FW_ME, BC250_SCR_CP_ME, BC250_CP_ME_IC_OP_CNTL, BC250_CP_ME_IC_BASE_CNTL, BC250_CP_ME_IC_BASE_LO,
+    if (!ViaPsp) St = CpLoadIc(BC250_FW_ME, BC250_SCR_CP_ME, BC250_CP_ME_IC_OP_CNTL, BC250_CP_ME_IC_BASE_CNTL, BC250_CP_ME_IC_BASE_LO,
                   BC250_CP_ME_IC_BASE_HI, BC250_CP_HYP_ME_UCODE_ADDR, BC250_CP_HYP_ME_UCODE_DATA);
     if (!NT_SUCCESS(St)) return St;
 
