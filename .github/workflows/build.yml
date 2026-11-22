@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       configuration:
-        description: 'Configuracion'
+        description: 'Configuration'
         type: choice
         options: [Release, Debug]
         default: Release

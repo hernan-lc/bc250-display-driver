@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Desinstala BC250Display y vuelve al "Adaptador de pantalla basico de Microsoft".
+  Removes BC250Display and returns to the Microsoft Basic Display Adapter.
 #>
 $ErrorActionPreference = 'Stop'
 $drivers = pnputil.exe /enum-drivers | Out-String
@@ -8,8 +8,8 @@ $blocks = $drivers -split "(\r?\n){2,}"
 foreach ($b in $blocks) {
   if ($b -match 'bc250display\.inf' -and $b -match '(oem\d+\.inf)') {
     $oem = $Matches[1]
-    Write-Host "Eliminando $oem"
+    Write-Host "Removing $oem"
     pnputil.exe /delete-driver $oem /uninstall /force
   }
 }
-Write-Host 'Listo. Reinicia para volver al driver basico de Microsoft.'
+Write-Host 'Done. Reboot to return to the Microsoft basic display driver.'
