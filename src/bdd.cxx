@@ -41,6 +41,19 @@ BASIC_DISPLAY_DRIVER::~BASIC_DISPLAY_DRIVER()
 }
 
 
+// Bring-up tracing: writes REG_DWORD values into the adapter's driver key
+// (HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e968-...}\NNNN), readable without admin.
+void Bc250Trace(_In_ DEVICE_OBJECT* pPdo, _In_ PCWSTR Name, ULONG Value)
+{
+    PAGED_CODE();
+    HANDLE hKey = NULL;
+    if (!pPdo || !NT_SUCCESS(IoOpenDeviceRegistryKey(pPdo, PLUGPLAY_REGKEY_DRIVER, KEY_SET_VALUE, &hKey))) return;
+    UNICODE_STRING U;
+    RtlInitUnicodeString(&U, Name);
+    ZwSetValueKey(hKey, &U, 0, REG_DWORD, &Value, sizeof(Value));
+    ZwClose(hKey);
+}
+
 NTSTATUS BASIC_DISPLAY_DRIVER::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartInfo,
                                            _In_  DXGKRNL_INTERFACE* pDxgkInterface,
                                            _Out_ ULONG*             pNumberOfViews,
@@ -53,13 +66,19 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartIn
     BDD_ASSERT(pNumberOfViews != NULL);
     BDD_ASSERT(pNumberOfChildren != NULL);
 
+    Bc250Trace(m_pPhysicalDevice, L"Bc250StartStep", 1);
     RtlCopyMemory(&m_StartInfo, pDxgkStartInfo, sizeof(m_StartInfo));
-    RtlCopyMemory(&m_DxgkInterface, pDxgkInterface, sizeof(m_DxgkInterface));
+    // dxgkrnl fills the interface for the version we declared; never copy past its Size
+    RtlZeroMemory(&m_DxgkInterface, sizeof(m_DxgkInterface));
+    RtlCopyMemory(&m_DxgkInterface, pDxgkInterface, min((SIZE_T)pDxgkInterface->Size, sizeof(m_DxgkInterface)));
+    Bc250Trace(m_pPhysicalDevice, L"Bc250DxgkInterfaceSize", pDxgkInterface->Size);
     RtlZeroMemory(m_CurrentModes, sizeof(m_CurrentModes));
     m_CurrentModes[0].DispInfo.TargetId = D3DDDI_ID_UNINITIALIZED;
 
     // Get device information from OS.
     NTSTATUS Status = m_DxgkInterface.DxgkCbGetDeviceInformation(m_DxgkInterface.DeviceHandle, &m_DeviceInfo);
+    Bc250Trace(m_pPhysicalDevice, L"Bc250StartStep", 2);
+    Bc250Trace(m_pPhysicalDevice, L"Bc250GetDeviceInfo", (ULONG)Status);
     if (!NT_SUCCESS(Status))
     {
         BDD_LOG_ASSERTION1("DxgkCbGetDeviceInformation failed with status 0x%I64x",
@@ -72,6 +91,8 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartIn
 
     // TODO: Uncomment the line below after updating the TODOs in the function CheckHardware
     Status = CheckHardware();
+    Bc250Trace(m_pPhysicalDevice, L"Bc250StartStep", 3);
+    Bc250Trace(m_pPhysicalDevice, L"Bc250CheckHardware", (ULONG)Status);
     if (!NT_SUCCESS(Status))
     {
         return Status;
@@ -80,6 +101,9 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartIn
     // This sample driver only uses the frame buffer of the POST device. DxgkCbAcquirePostDisplayOwnership
     // gives you the frame buffer address and ensures that no one else is drawing to it. Be sure to give it back!
     Status = m_DxgkInterface.DxgkCbAcquirePostDisplayOwnership(m_DxgkInterface.DeviceHandle, &(m_CurrentModes[0].DispInfo));
+    Bc250Trace(m_pPhysicalDevice, L"Bc250StartStep", 4);
+    Bc250Trace(m_pPhysicalDevice, L"Bc250AcquirePost", (ULONG)Status);
+    Bc250Trace(m_pPhysicalDevice, L"Bc250PostWidth", m_CurrentModes[0].DispInfo.Width);
     if (!NT_SUCCESS(Status) || m_CurrentModes[0].DispInfo.Width == 0)
     {
         // The most likely cause of failure is that the driver is simply not running on a POST device, or we are running
@@ -90,6 +114,7 @@ NTSTATUS BASIC_DISPLAY_DRIVER::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartIn
 
     // BC-250 layer: maps the register BAR and reads state only. Engines start on request.
     m_Gpu.Start(&m_DxgkInterface, &m_DeviceInfo, m_pPhysicalDevice, &m_CurrentModes[0].DispInfo);
+    Bc250Trace(m_pPhysicalDevice, L"Bc250StartStep", 5);
 
     *pNumberOfViews = MAX_VIEWS;
     *pNumberOfChildren = MAX_CHILDREN;
@@ -277,14 +302,19 @@ NTSTATUS BASIC_DISPLAY_DRIVER::QueryAdapterInfo(_In_ CONST DXGKARG_QUERYADAPTERI
     PAGED_CODE();
 
     BDD_ASSERT(pQueryAdapterInfo != NULL);
+    Bc250Trace(m_pPhysicalDevice, L"Bc250LastQueryType", (ULONG)pQueryAdapterInfo->Type);
 
     switch (pQueryAdapterInfo->Type)
     {
         case DXGKQAITYPE_DRIVERCAPS:
         {
-            if (pQueryAdapterInfo->OutputDataSize < sizeof(DXGK_DRIVERCAPS))
+            // dxgkrnl sizes this buffer for the interface version we declared (WIN8), which is smaller
+            // than DXGK_DRIVERCAPS in current headers: only require the WIN8 fields we fill in.
+            const SIZE_T Win8CapsSize = FIELD_OFFSET(DXGK_DRIVERCAPS, SupportSmoothRotation) + sizeof(BOOLEAN);
+            Bc250Trace(m_pPhysicalDevice, L"Bc250DriverCapsSize", pQueryAdapterInfo->OutputDataSize);
+            if (pQueryAdapterInfo->OutputDataSize < Win8CapsSize)
             {
-                BDD_LOG_ERROR2("pQueryAdapterInfo->OutputDataSize (0x%I64x) is smaller than sizeof(DXGK_DRIVERCAPS) (0x%I64x)", pQueryAdapterInfo->OutputDataSize, sizeof(DXGK_DRIVERCAPS));
+                BDD_LOG_ERROR2("pQueryAdapterInfo->OutputDataSize (0x%I64x) is smaller than the WIN8 DXGK_DRIVERCAPS (0x%I64x)", pQueryAdapterInfo->OutputDataSize, Win8CapsSize);
                 return STATUS_BUFFER_TOO_SMALL;
             }
 
@@ -293,7 +323,7 @@ NTSTATUS BASIC_DISPLAY_DRIVER::QueryAdapterInfo(_In_ CONST DXGKARG_QUERYADAPTERI
             // Nearly all fields must be initialized to zero, so zero out to start and then change those that are non-zero.
             // Fields are zero since BDD is Display-Only and therefore does not support any of the render related fields.
             // It also doesn't support hardware interrupts, gamma ramps, etc.
-            RtlZeroMemory(pDriverCaps, sizeof(DXGK_DRIVERCAPS));
+            RtlZeroMemory(pDriverCaps, min((SIZE_T)pQueryAdapterInfo->OutputDataSize, sizeof(DXGK_DRIVERCAPS)));
 
             pDriverCaps->WDDMVersion = DXGKDDI_WDDMv1_2;
             pDriverCaps->HighestAcceptableAddress.QuadPart = -1;

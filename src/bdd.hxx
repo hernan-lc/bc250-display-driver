@@ -59,6 +59,7 @@ extern "C"
 
 #include "BDD_ErrorLog.hxx"
 #include "gpu\bc250_gpu.h"
+void Bc250Trace(_In_ DEVICE_OBJECT* pPdo, _In_ PCWSTR Name, ULONG Value);
 
 #define MIN_WIDTH                    640
 #define MIN_HEIGHT                   480
