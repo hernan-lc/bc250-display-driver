@@ -9,7 +9,7 @@ Signature   = "$Windows NT$"
 Class       = Display
 ClassGUID   = {4d36e968-e325-11ce-bfc1-08002be10318}
 Provider    = %ProviderString%
-DriverVer   = 11/21/2026,0.1.0.0
+DriverVer   = 11/01/2026,0.1.0.0
 CatalogFile = BC250Display.cat
 PnpLockdown = 1
 

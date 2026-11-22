@@ -1,26 +1,70 @@
 name: build
 
+# Runs only when something that affects the driver changes (not for README edits, etc.)
 on:
   push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'src/**'
+      - 'package/**'
+      - '*.vcxproj'
+      - '*.sln'
+      - 'Directory.Build.*'
+      - 'packages.config'
+      - 'scripts/build.ps1'
+      - '.github/workflows/build.yml'
   pull_request:
+    paths:
+      - 'src/**'
+      - 'package/**'
+      - '*.vcxproj'
+      - 'Directory.Build.*'
+      - 'packages.config'
+      - 'scripts/build.ps1'
   workflow_dispatch:
+    inputs:
+      configuration:
+        description: 'Configuracion'
+        type: choice
+        options: [Release, Debug]
+        default: Release
+
+# If you push twice in a row, cancel the previous run
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        configuration: [Release, Debug]
+    timeout-minutes: 20
+    env:
+      CONFIGURATION: ${{ inputs.configuration || 'Release' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
 
-      - name: Build driver (WDK via NuGet)
+      # WDK/SDK from NuGet (~1 GB): cached so it doesn't download on every run
+      - name: Cache NuGet WDK
+        uses: actions/cache@v6
+        with:
+          path: |
+            packages
+            tools
+          key: wdk-${{ runner.os }}-${{ hashFiles('packages.config') }}
+
+      - name: Build driver
         shell: pwsh
-        run: ./scripts/build.ps1 -Configuration ${{ matrix.configuration }}
+        run: ./scripts/build.ps1 -Configuration $env:CONFIGURATION
 
       - name: Upload driver package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: BC250Display-${{ matrix.configuration }}
-          path: out/${{ matrix.configuration }}/
+          name: BC250Display-${{ env.CONFIGURATION }}
+          path: out/${{ env.CONFIGURATION }}/
+          retention-days: 14
