@@ -119,6 +119,7 @@
 #define BC250_CP_RB_ACTIVE                                     0x031A0u
 #define BC250_CP_RB_DOORBELL_CONTROL                           0x030EDu
 #define BC250_CP_RB_WPTR_POLL_CNTL                             0x021C2u
+#define BC250_CP_INT_CNTL_RING0                                0x0306Au
 #define BC250_GCMC_VM_FB_LOCATION_BASE__FB_BASE_MASK                           0xFFFFFFu
 #define BC250_GCMC_VM_FB_LOCATION_TOP__FB_TOP_MASK                             0xFFFFFFu
 #define BC250_GCMC_VM_MX_L1_TLB_CNTL__ENABLE_L1_TLB_MASK                       0x1u
@@ -181,6 +182,7 @@
 #define BC250_CP_RB0_CNTL__RB_BLKSZ_MASK                                       0x3F00u
 #define BC250_CP_RB_DOORBELL_CONTROL__DOORBELL_EN_MASK                         0x40000000u
 #define BC250_GRBM_GFX_CNTL__PIPEID_MASK                                       0x3u
+#define BC250_CP_INT_CNTL_RING0__TIME_STAMP_INT_ENABLE_MASK                    0x4000000u
 
 // ---- MMHUB ----
 #define BC250_MMMC_VM_FB_LOCATION_BASE                         0x1A86Cu

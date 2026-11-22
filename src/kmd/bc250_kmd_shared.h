@@ -34,7 +34,7 @@ typedef struct BC250_KMD_ADAPTER_INFO {
     bckmd_u64 ApertureBase, ApertureSize;
     bckmd_u64 ScanoutMc;
     bckmd_u32 ScanoutPitch;
-    bckmd_u32 Engines;        // bit0 = SDMA0 (copy/fill). Graphics/compute queues are not up yet.
+    bckmd_u32 Engines;        // bit0 = SDMA0 (node 0, copy/fill), bit1 = CP graphics ring (node 1, PM4)
 } BC250_KMD_ADAPTER_INFO;
 
 // Segment ids reported to dxgkrnl (1-based)

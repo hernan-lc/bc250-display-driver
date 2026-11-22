@@ -19,20 +19,44 @@ static ULONG CpLog2(ULONG v) { ULONG r = 0; while (v > 1) { v >>= 1; ++r; } retu
 static const ULONG g_GoldenGc[][3] = BC250_GOLDEN_GC_INIT;
 static const ULONG g_Csb[] = BC250_CSB_INIT;
 
+#pragma code_seg(push)
+#pragma code_seg()   // submission path: callable at raised IRQL
 VOID BC250_GPU::CpWrite(ULONG Dw)
 {
-    PAGED_CODE();
     ScrWrite(BC250_SCR_CP_RING + (m_CpWptr % (BC250_CP_RING_SIZE / 4)) * 4, Dw);
     ++m_CpWptr;
 }
 
 VOID BC250_GPU::CpCommit()
 {
-    PAGED_CODE();
     HdpFlush();
     Wreg(BC250_CP_RB0_WPTR, m_CpWptr);       // the gfx ring wptr is in dwords
     Wreg(BC250_CP_RB0_WPTR_HI, 0);
 }
+
+// PM4: INDIRECT_BUFFER + RELEASE_MEM(fence, EOP interrupt) - gfx_v10_0_ring_emit_ib_gfx / emit_fence
+VOID BC250_GPU::KmdSubmitCp(ULONGLONG IbMc, ULONG Dwords, ULONG FenceId)
+{
+    if (!m_CpReady) return;
+    if (Dwords)
+    {
+        CpWrite(PKT3(0x3F, 2));                   // INDIRECT_BUFFER
+        CpWrite((ULONG)IbMc & 0xFFFFFFFC);
+        CpWrite((ULONG)(IbMc >> 32));
+        CpWrite(Dwords & 0xFFFFF);                // VMID 0
+    }
+    ULONGLONG F = ScrMc(BC250_SCR_CP_FENCE);
+    CpWrite(PKT3(0x49, 6));                       // RELEASE_MEM
+    CpWrite((1u << 22) | (1u << 21) | (1u << 13) | (1u << 12) | (3u << 25) | 0x14u | (5u << 8));  // GCR_SEQ|GL2_WB|GLM_INV|GLM_WB|BYPASS|CACHE_FLUSH_AND_INV_TS_EVENT|INDEX5
+    CpWrite((1u << 29) | (2u << 24));             // DATA_SEL=32-bit, INT_SEL=after write confirm
+    CpWrite((ULONG)F);
+    CpWrite((ULONG)(F >> 32));
+    CpWrite(FenceId);
+    CpWrite(0);
+    CpWrite(0);
+    CpCommit();
+}
+#pragma code_seg(pop)
 
 // Copies a gfx_firmware_header_v1_0 image into VRAM, points the engine's instruction cache at it
 // and loads the jump table through the HYP ucode port (gfx_v10_0_cp_gfx_load_{pfp,ce,me}_microcode).

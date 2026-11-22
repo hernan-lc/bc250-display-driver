@@ -36,11 +36,14 @@
 #define BC250_SCR_CP_RING      0x500000u   // 64 KiB graphics ring 0
 #define BC250_SCR_CP_WB        0x510000u   // rptr writeback (+0), wptr poll (+8), WRITE_DATA test (+0x100)
 #define BC250_CP_RING_SIZE     0x10000u
+#define BC250_SCR_CP_FENCE     (BC250_SCR_CP_WB + 0x200u)
+#define BC250_IH_CLIENT_GRBM_CP 0x14u
+#define BC250_IH_SRC_CP_EOP    181u
+#define BC250_FW_DIR           L"\\SystemRoot\\System32\\drivers\\bc250\\"
 
 #define BC250_GART_SIZE        0x10000000ull   // 256 MiB
 #define BC250_GART_RESERVED    0x00100000ull   // first 1 MiB of GART kept for the driver (test page)
 #define BC250_KMD_VRAM_OFFSET  0x08000000ull   // BC250Kmd VRAM segment starts at 128 MiB
-#define BC250_SDMA_FW_PATH     L"\\SystemRoot\\System32\\drivers\\bc250\\cyan_skillfish2_sdma.bin"
 #define BC250_IH_RING_SIZE     0x10000u
 #define BC250_SDMA_RING_SIZE   0x10000u
 
@@ -74,8 +77,11 @@ public:
     ULONG     ScanoutPitch() const    { return m_FbPitch; }
     VOID      GartMapPages(ULONGLONG GpuAddr, _In_reads_(Count) const PFN_NUMBER* Pfns, SIZE_T Count);  // <= DISPATCH
     VOID      GartUnmapPages(ULONGLONG GpuAddr, SIZE_T Count);                                         // <= DISPATCH
-    VOID      KmdSubmit(ULONGLONG IbMc, ULONG Dwords, ULONG FenceId);   // any IRQL; dxgkrnl serializes submissions
+    VOID      KmdSubmit(ULONGLONG IbMc, ULONG Dwords, ULONG FenceId);   // node 0 (SDMA); any IRQL, dxgkrnl serializes
+    VOID      KmdSubmitCp(ULONGLONG IbMc, ULONG Dwords, ULONG FenceId); // node 1 (CP graphics ring)
     ULONG     KmdCompletedFence() const { return m_Scratch ? ScrRead(BC250_SCR_FENCE) : 0; }
+    ULONG     KmdCompletedFenceCp() const { return m_Scratch ? ScrRead(BC250_SCR_CP_FENCE) : 0; }
+    BOOLEAN   KmdCpReady() const { return m_CpReady; }
     BOOLEAN   KmdWaitIdle(ULONG TimeoutUs);      // PASSIVE
 
 private:
@@ -156,7 +162,7 @@ private:
     volatile LONG      m_LastClient, m_LastSrc, m_LastSrcData, m_IhOverflow;
 
     BOOLEAN   m_KmdMode;                // full WDDM driver: notify dxgkrnl from the ISR
-    NTSTATUS  LoadFirmwareFile(_In_ PCWSTR Path);
+    NTSTATUS  LoadFirmwareFile(_In_ PCWSTR Name, ULONG Engine);   // file name under BC250_FW_DIR
 
     // SDMA
     UCHAR*    m_Fw;                     // SDMA0

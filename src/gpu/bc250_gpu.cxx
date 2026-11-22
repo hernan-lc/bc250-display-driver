@@ -77,6 +77,7 @@ BOOLEAN BC250_GPU::Isr()
     Wptr &= BC250_IH_RB_WPTR__OFFSET_MASK;
     Wptr &= (BC250_IH_RING_SIZE - 1);
     if (Wptr == m_IhRptr) return FALSE;                   // not ours (shared line)
+    BOOLEAN SdmaDone = FALSE, CpDone = FALSE;
 
     while (m_IhRptr != Wptr)
     {
@@ -89,23 +90,38 @@ BOOLEAN BC250_GPU::Isr()
         InterlockedExchange(&m_LastSrc, (LONG)Src);
         InterlockedExchange(&m_LastSrcData, (LONG)Dw4);
         if (Client == BC250_IH_CLIENT_SDMA0 && Src == BC250_IH_SRC_SDMA_TRAP)
+        {
             InterlockedIncrement64(&m_SdmaTraps);
+            SdmaDone = TRUE;
+        }
+        else if (Client == BC250_IH_CLIENT_GRBM_CP && Src == BC250_IH_SRC_CP_EOP)
+            CpDone = TRUE;
         InterlockedIncrement64(&m_IhEntries);
         m_IhRptr = (m_IhRptr + 32) & (BC250_IH_RING_SIZE - 1);
     }
     Wreg(BC250_IH_RB_RPTR, m_IhRptr);
     InterlockedIncrement64(&m_IntCount);
 
-    if (m_KmdMode)
+    if (m_KmdMode && (SdmaDone || CpDone))
     {
-        // every SDMA submission ends with FENCE(SubmissionFenceId) + TRAP
+        // node 0: SDMA FENCE + TRAP; node 1: CP RELEASE_MEM (EOP interrupt)
         DXGKARGCB_NOTIFY_INTERRUPT_DATA d;
-        RtlZeroMemory(&d, sizeof(d));
-        d.InterruptType = DXGK_INTERRUPT_DMA_COMPLETED;
-        d.DmaCompleted.SubmissionFenceId = ScrRead(BC250_SCR_FENCE);
-        d.DmaCompleted.NodeOrdinal = 0;
-        d.DmaCompleted.EngineOrdinal = 0;
-        m_Dxgk.DxgkCbNotifyInterrupt(m_Dxgk.DeviceHandle, &d);
+        if (SdmaDone)
+        {
+            RtlZeroMemory(&d, sizeof(d));
+            d.InterruptType = DXGK_INTERRUPT_DMA_COMPLETED;
+            d.DmaCompleted.SubmissionFenceId = ScrRead(BC250_SCR_FENCE);
+            d.DmaCompleted.NodeOrdinal = 0;
+            m_Dxgk.DxgkCbNotifyInterrupt(m_Dxgk.DeviceHandle, &d);
+        }
+        if (CpDone)
+        {
+            RtlZeroMemory(&d, sizeof(d));
+            d.InterruptType = DXGK_INTERRUPT_DMA_COMPLETED;
+            d.DmaCompleted.SubmissionFenceId = ScrRead(BC250_SCR_CP_FENCE);
+            d.DmaCompleted.NodeOrdinal = 1;
+            m_Dxgk.DxgkCbNotifyInterrupt(m_Dxgk.DeviceHandle, &d);
+        }
         m_Dxgk.DxgkCbQueueDpc(m_Dxgk.DeviceHandle);
     }
     return TRUE;
@@ -1022,11 +1038,15 @@ NTSTATUS BC250_GPU::Escape(VOID* pData, UINT Size)
 // M5b: services for BC250Kmd (full WDDM driver). PASSIVE_LEVEL unless noted.
 // ----------------------------------------------------------------------------------------------
 
-NTSTATUS BC250_GPU::LoadFirmwareFile(PCWSTR Path)
+NTSTATUS BC250_GPU::LoadFirmwareFile(PCWSTR FileName, ULONG Engine)
 {
     PAGED_CODE();
+    if (Engine >= BC250_FW_COUNT) return STATUS_INVALID_PARAMETER;
+    WCHAR PathBuf[160];
+    NTSTATUS Sp = RtlStringCchPrintfW(PathBuf, ARRAYSIZE(PathBuf), L"%s%s", BC250_FW_DIR, FileName);
+    if (!NT_SUCCESS(Sp)) return Sp;
     UNICODE_STRING Name;
-    RtlInitUnicodeString(&Name, Path);
+    RtlInitUnicodeString(&Name, PathBuf);
     OBJECT_ATTRIBUTES Oa;
     InitializeObjectAttributes(&Oa, &Name, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
     IO_STATUS_BLOCK Io;
@@ -1048,8 +1068,10 @@ NTSTATUS BC250_GPU::LoadFirmwareFile(PCWSTR Path)
             St = ZwReadFile(h, NULL, NULL, NULL, &Io, Buf, Size, &Off, NULL);
             if (NT_SUCCESS(St) && Io.Information == Size)
             {
-                if (m_Fw) ExFreePoolWithTag(m_Fw, BC250_TAG);
-                m_Fw = Buf; m_FwSize = Size;
+                UCHAR** pp = (Engine == BC250_FW_SDMA0) ? &m_Fw : &m_FwCp[Engine];
+                ULONG*  ps = (Engine == BC250_FW_SDMA0) ? &m_FwSize : &m_FwCpSize[Engine];
+                if (*pp) ExFreePoolWithTag(*pp, BC250_TAG);
+                *pp = Buf; *ps = Size;
             }
             else { ExFreePoolWithTag(Buf, BC250_TAG); if (NT_SUCCESS(St)) St = STATUS_END_OF_FILE; }
         }
@@ -1077,13 +1099,20 @@ NTSTATUS BC250_GPU::KmdBringUp()
 {
     PAGED_CODE();
     if (!m_Mmio) return STATUS_DEVICE_NOT_READY;
-    NTSTATUS St = LoadFirmwareFile(BC250_SDMA_FW_PATH);   // outside the lock: file I/O at PASSIVE
+    NTSTATUS St = LoadFirmwareFile(L"cyan_skillfish2_sdma.bin", BC250_FW_SDMA0);   // file I/O at PASSIVE, outside the lock
     if (!NT_SUCCESS(St)) return St;
+    // graphics ring is optional: only if all four CP images are present
+    BOOLEAN HaveCp = NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_rlc.bin", BC250_FW_RLC)) &&
+                     NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_pfp.bin", BC250_FW_PFP)) &&
+                     NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_me.bin",  BC250_FW_ME)) &&
+                     NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_ce.bin",  BC250_FW_CE));
     ExAcquireFastMutex(&m_Lock);
     St = GartInit();
     if (NT_SUCCESS(St)) St = IhInit();
     if (NT_SUCCESS(St)) St = SdmaStart();
-    if (NT_SUCCESS(St)) { ScrWrite(BC250_SCR_FENCE, 0); HdpFlush(); m_KmdMode = TRUE; }
+    if (NT_SUCCESS(St) && HaveCp && NT_SUCCESS(CpStart()))
+        Rmw(BC250_CP_INT_CNTL_RING0, 0, BC250_CP_INT_CNTL_RING0__TIME_STAMP_INT_ENABLE_MASK);   // EOP interrupts
+    if (NT_SUCCESS(St)) { ScrWrite(BC250_SCR_FENCE, 0); ScrWrite(BC250_SCR_CP_FENCE, 0); HdpFlush(); m_KmdMode = TRUE; }
     ExReleaseFastMutex(&m_Lock);
     if (NT_SUCCESS(St) && !VramSegmentSize()) St = STATUS_INSUFFICIENT_RESOURCES;
     return St;

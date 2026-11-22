@@ -86,7 +86,7 @@ NTSTATUS APIENTRY KmdQueryAdapterInfo(_In_ CONST HANDLE hAdapter, _In_ CONST DXG
         c->PresentationCaps.SupportKernelModeCommandBuffer = FALSE;
         c->SchedulingCaps.MultiEngineAware = 0;
         c->MemoryManagementCaps.PagingNode = 0;
-        c->GpuEngineTopology.NbAsymetricProcessingNodes = 1;
+        c->GpuEngineTopology.NbAsymetricProcessingNodes = Gpu->KmdCpReady() ? 2 : 1;   // 0 = SDMA, 1 = CP graphics
         c->WDDMVersion = DXGKDDI_WDDMv1_2;
         c->PreemptionCaps.GraphicsPreemptionGranularity = D3DKMDT_GRAPHICS_PREEMPTION_DMA_BUFFER_BOUNDARY;
         c->PreemptionCaps.ComputePreemptionGranularity = D3DKMDT_COMPUTE_PREEMPTION_DMA_BUFFER_BOUNDARY;
@@ -141,7 +141,7 @@ NTSTATUS APIENTRY KmdQueryAdapterInfo(_In_ CONST HANDLE hAdapter, _In_ CONST DXG
         i->ApertureSize = Gpu->ApertureSize();
         i->ScanoutMc = Gpu->ScanoutMc();
         i->ScanoutPitch = Gpu->ScanoutPitch();
-        i->Engines = 1;
+        i->Engines = Gpu->KmdCpReady() ? 3 : 1;   // bit0 SDMA (node 0), bit1 CP graphics (node 1)
         return STATUS_SUCCESS;
     }
 
@@ -425,7 +425,8 @@ NTSTATUS APIENTRY KmdSubmitCommand(_In_ CONST HANDLE hAdapter, _In_ CONST DXGKAR
     ULONGLONG Ib = (ULONGLONG)p->DmaBufferPhysicalAddress.QuadPart + p->DmaBufferSubmissionStartOffset;
     ULONG Dwords = (p->DmaBufferSubmissionEndOffset - p->DmaBufferSubmissionStartOffset) / 4;
     if (p->DmaBufferSegmentId != BC250_KMD_SEGMENT_APERTURE && p->DmaBufferSegmentId != BC250_KMD_SEGMENT_VRAM) Dwords = 0;
-    Gpu->KmdSubmit(Ib, Dwords, p->SubmissionFenceId);
+    if (p->NodeOrdinal == 1) Gpu->KmdSubmitCp(Ib, Dwords, p->SubmissionFenceId);
+    else Gpu->KmdSubmit(Ib, Dwords, p->SubmissionFenceId);
     return STATUS_SUCCESS;
 }
 
@@ -438,7 +439,8 @@ NTSTATUS APIENTRY KmdPreemptCommand(_In_ CONST HANDLE hAdapter, _In_ CONST DXGKA
 
 NTSTATUS APIENTRY KmdQueryCurrentFence(_In_ CONST HANDLE hAdapter, _Inout_ DXGKARG_QUERYCURRENTFENCE* p)
 {
-    p->CurrentFence = Adapter(hAdapter)->Gpu()->KmdCompletedFence();
+    BC250_GPU* Gpu = Adapter(hAdapter)->Gpu();
+    p->CurrentFence = (p->NodeOrdinal == 1) ? Gpu->KmdCompletedFenceCp() : Gpu->KmdCompletedFence();
     return STATUS_SUCCESS;
 }
 

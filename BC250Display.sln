@@ -11,6 +11,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "bc250demo", "umd\bc250demo\
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BC250Kmd", "BC250Kmd.vcxproj", "{A1C2E3F4-250E-4D5C-B6A7-BC250E000001}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "bc250kmdtest", "umd\bc250kmdtest\bc250kmdtest.vcxproj", "{5D2B7C11-250F-4F3A-9B10-BC250F7E5701}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -33,5 +35,9 @@ Global
 		{A1C2E3F4-250E-4D5C-B6A7-BC250E000001}.Debug|x64.Build.0 = Debug|x64
 		{A1C2E3F4-250E-4D5C-B6A7-BC250E000001}.Release|x64.ActiveCfg = Release|x64
 		{A1C2E3F4-250E-4D5C-B6A7-BC250E000001}.Release|x64.Build.0 = Release|x64
+		{5D2B7C11-250F-4F3A-9B10-BC250F7E5701}.Debug|x64.ActiveCfg = Debug|x64
+		{5D2B7C11-250F-4F3A-9B10-BC250F7E5701}.Debug|x64.Build.0 = Debug|x64
+		{5D2B7C11-250F-4F3A-9B10-BC250F7E5701}.Release|x64.ActiveCfg = Release|x64
+		{5D2B7C11-250F-4F3A-9B10-BC250F7E5701}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 EndGlobal
