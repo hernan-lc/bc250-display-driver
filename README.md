@@ -13,17 +13,30 @@ Register offsets and init sequences are taken from the Linux `amdgpu` driver (MI
 | Milestone | Code | Tested on hardware |
 |---|---|---|
 | Display-only on the UEFI GOP framebuffer | ✅ | ✅ 1920×1080 |
-| M1 registers, SMU, memory layout (`bc250ctl info`) | ✅ | not yet |
-| M2 interrupts (IH ring) | ✅ | not yet |
-| M3 GPU memory (GCVM + GART) | ✅ | not yet |
-| M4 SDMA engine (firmware load, ring, fences) | ✅ | not yet |
-| M4b RLC + CP graphics ring, PM4 | ✅ | not yet |
-| M5a command submission + GPU fill into the screen | ✅ | not yet |
-| M5b `BC250Kmd.sys` full WDDM driver (experimental) | ✅ | not yet |
-| M6a/M6b user-mode APIs: `libbc250` (escapes), `libbc250wddm` (D3DKMT winsys) | ✅ | not yet |
+| M1 registers, SMU, memory layout (`bc250ctl info`) | ✅ | ✅ |
+| M2 interrupts (IH ring + MSI) | ✅ | ✅ SDMA trap → IH → ISR |
+| M3 GPU memory (GCVM + GART) | ✅ | ✅ |
+| M4 SDMA engine (firmware via PSP, ring, fences) | ✅ | ✅ |
+| M4b RLC + CP graphics ring, PM4 | ✅ | ✅ |
+| M4d MEC compute queue + MEC firmware | ✅ | ✅ |
+| M5a command submission + GPU fill into the screen | ✅ | ✅ |
+| M5b `BC250Kmd.sys` full WDDM driver (experimental) | ✅ | ⚠️ GPU bring-up OK, display start fails |
+| M6a `libbc250` (escapes) + demo | ✅ | ✅ |
+| M6b `libbc250wddm` (D3DKMT winsys) + `bc250kmdtest` | ✅ | ❌ blocked by M5b display |
 | M6c Mesa RADV (Vulkan), M7 Direct3D | not started | — |
 
 Details, test sequence and risks: [docs/ROADMAP.md](docs/ROADMAP.md).
+
+### Current state (2026-11-22)
+
+The hardware layer (M1–M5a, M6a) is verified on the BC-250. `BC250Kmd` was installed
+for the first time on 2026-11-22: its GPU bring-up succeeded (`KmdBringUp=0`, step 8)
+but DxgKrnl could not set a display mode (`0x1A8 VIDEO_DXGKRNL_BLACK_SCREEN_LIVEDUMP`,
+parameter `0xA`), so the machine came up with a black screen. The registry was repaired
+offline: `BC250Kmd` is disabled, `NOVGA` was removed, and the Microsoft Basic Display
+Adapter is available as fallback. The BC250Display package must be reinstalled with
+`install.ps1` before using the display-only driver again. See
+[docs/BOOT-RECOVERY.md](docs/BOOT-RECOVERY.md).
 
 ### Layout
 
@@ -37,7 +50,10 @@ Details, test sequence and risks: [docs/ROADMAP.md](docs/ROADMAP.md).
 | `umd/libbc250wddm/` | header-only winsys over D3DKMT for `BC250Kmd` |
 | `umd/bc250demo/`, `umd/bc250kmdtest/` | clients that build and submit command buffers |
 | `tools/genregs.py` | regenerates `src/gpu/bc250_regs.h` from Linux amdgpu headers |
+| `tools/repair-windows-boot.py` | offline SYSTEM-hive repair from Linux (`--apply`) |
 | `scripts/get-firmware.ps1` | downloads `cyan_skillfish2_*.bin` from linux-firmware |
+| `scripts/recover-boot.ps1`, `guard-display.ps1` | WinRE recovery and one-shot auto-revert guard |
+| `scripts/install-kmd-safe.ps1` | KMD install with backup, fallback and auto-revert |
 
 Things that are **not** supported: suspend S3/S4 (the installer disables sleep), hardware mode changes,
 multiple monitors.
@@ -93,6 +109,11 @@ To go back to the Microsoft Basic Display Adapter:
 - **Code 43**: there was no POST/GOP framebuffer. Make sure the firmware boots in UEFI mode with video
   output on the BC-250.
 - **Black screen**: boot into Safe Mode and run `uninstall.ps1`.
+- **After installing `BC250Kmd` the machine seems not to boot**: see
+  [`docs/BOOT-RECOVERY.md`](docs/BOOT-RECOVERY.md). Fastest path from Linux:
+  `python3 tools/repair-windows-boot.py --apply`; from WinRE:
+  `scripts\recover-boot.ps1`. Use `scripts\install-kmd-safe.ps1` for future
+  KMD installs — it keeps a fallback and auto-reverts a failed adapter.
 
 ## License
 

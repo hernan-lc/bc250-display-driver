@@ -33,6 +33,9 @@ BC250Kmd.sys = 1
 [BC250Kmd_Inst]
 FeatureScore = FA
 CopyFiles    = BC250Kmd.Files
+; No UserModeDriverName: bc250umd.dll does not exist. Declaring a fake UMD makes
+; dxgkrnl fail adapter start and, with NOVGA, leaves the machine with no display.
+; Keep the desktop on BasicDisplay/software composition until a real UMD exists.
 
 [BC250Kmd_Inst.HW]
 AddReg = BC250Kmd_Msi.AddReg

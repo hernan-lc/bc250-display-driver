@@ -1116,7 +1116,9 @@ ULONGLONG BC250_GPU::ScanoutMc() const
 NTSTATUS BC250_GPU::KmdBringUp()
 {
     PAGED_CODE();
+    m_KmdStep = 1;
     if (!m_Mmio) return STATUS_DEVICE_NOT_READY;
+    m_KmdStep = 2;
     NTSTATUS St = LoadFirmwareFile(L"cyan_skillfish2_sdma.bin", BC250_FW_SDMA0);   // file I/O at PASSIVE, outside the lock
     if (!NT_SUCCESS(St)) return St;
     // graphics ring is optional: only if all four CP images are present
@@ -1125,11 +1127,13 @@ NTSTATUS BC250_GPU::KmdBringUp()
                      NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_me.bin",  BC250_FW_ME)) &&
                      NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_ce.bin",  BC250_FW_CE)) &&
                      NT_SUCCESS(LoadFirmwareFile(L"cyan_skillfish2_mec.bin", BC250_FW_MEC));   // the gfx CP needs the MEC loaded too
+    m_KmdStep = HaveCp ? 4 : 3;
     ExAcquireFastMutex(&m_Lock);
     St = GartInit();
-    if (NT_SUCCESS(St)) St = IhInit();
-    if (NT_SUCCESS(St)) { BC250_TEST Psp; St = PspLoadAll(&Psp); }   // also loads CP firmware when present
-    if (NT_SUCCESS(St)) St = SdmaStart();
+    if (NT_SUCCESS(St)) { m_KmdStep = 5; St = IhInit(); }
+    if (NT_SUCCESS(St)) { m_KmdStep = 6; BC250_TEST Psp; St = PspLoadAll(&Psp); }   // also loads CP firmware when present
+    if (NT_SUCCESS(St)) { m_KmdStep = 7; St = SdmaStart(); }
+    if (NT_SUCCESS(St)) m_KmdStep = 8;
     if (NT_SUCCESS(St) && HaveCp && NT_SUCCESS(CpStart()))
         Rmw(BC250_CP_INT_CNTL_RING0, 0, BC250_CP_INT_CNTL_RING0__TIME_STAMP_INT_ENABLE_MASK);   // EOP interrupts
     if (NT_SUCCESS(St)) { ScrWrite(BC250_SCR_FENCE, 0); ScrWrite(BC250_SCR_CP_FENCE, 0); HdpFlush(); m_KmdMode = TRUE; }

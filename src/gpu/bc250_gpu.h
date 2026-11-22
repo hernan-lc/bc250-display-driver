@@ -95,6 +95,7 @@ public:
     ULONG     KmdCompletedFenceCp() const { return m_Scratch ? ScrRead(BC250_SCR_CP_FENCE) : 0; }
     BOOLEAN   KmdCpReady() const { return m_CpReady; }
     BOOLEAN   KmdWaitIdle(ULONG TimeoutUs);      // PASSIVE
+    ULONG     KmdLastStep() const { return m_KmdStep; }
 
 private:
     // --- M1 ---
@@ -188,6 +189,7 @@ private:
     volatile LONG      m_LastClient, m_LastSrc, m_LastSrcData, m_IhOverflow;
 
     BOOLEAN   m_KmdMode;
+    ULONG     m_KmdStep;                // last KmdBringUp step reached (diagnostics)
     BOOLEAN   m_Msi;                    // interrupt resource is message-signaled                // full WDDM driver: notify dxgkrnl from the ISR
     NTSTATUS  LoadFirmwareFile(_In_ PCWSTR Name, ULONG Engine);   // file name under BC250_FW_DIR
 

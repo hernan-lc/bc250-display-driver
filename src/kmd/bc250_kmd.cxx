@@ -55,7 +55,10 @@ NTSTATUS KmdStartDevice(_In_ VOID* pCtx, _In_ DXGK_START_INFO* pStartInfo, _In_ 
     PAGED_CODE();
     NTSTATUS St = BddDdiStartDevice(pCtx, pStartInfo, pDxgk, pViews, pChildren);
     if (!NT_SUCCESS(St)) return St;
+    Bc250Trace(Adapter(pCtx)->Pdo(), L"KmdStartStep", 1);
     St = Adapter(pCtx)->Gpu()->KmdBringUp();
+    Bc250Trace(Adapter(pCtx)->Pdo(), L"KmdBringUp", (ULONG)St);
+    Bc250Trace(Adapter(pCtx)->Pdo(), L"KmdBringUpStep", Adapter(pCtx)->Gpu()->KmdLastStep());
     if (!NT_SUCCESS(St))
     {
         BDD_LOG_ERROR1("BC250Kmd: GPU bring-up failed 0x%I64x", St);
@@ -68,18 +71,21 @@ NTSTATUS KmdStartDevice(_In_ VOID* pCtx, _In_ DXGK_START_INFO* pStartInfo, _In_ 
 // Adapter info: caps, segments, UMD private data
 // ----------------------------------------------------------------------------------------------
 
-NTSTATUS APIENTRY KmdQueryAdapterInfo(_In_ CONST HANDLE hAdapter, _In_ CONST DXGKARG_QUERYADAPTERINFO* p)
+static NTSTATUS KmdQueryAdapterInfoImpl(_In_ CONST HANDLE hAdapter, _In_ CONST DXGKARG_QUERYADAPTERINFO* p)
 {
     PAGED_CODE();
     BC250_GPU* Gpu = Adapter(hAdapter)->Gpu();
+    Bc250Trace(Adapter(hAdapter)->Pdo(), L"KmdLastQueryType", (ULONG)p->Type);
 
     switch (p->Type)
     {
     case DXGKQAITYPE_DRIVERCAPS:
     {
-        if (p->OutputDataSize < sizeof(DXGK_DRIVERCAPS)) return STATUS_BUFFER_TOO_SMALL;
+        // WIN8-sized buffer (see BDD QueryAdapterInfo): fill only what the declared version has
+        const SIZE_T Win8CapsSize = FIELD_OFFSET(DXGK_DRIVERCAPS, SupportSmoothRotation) + sizeof(BOOLEAN);
+        if (p->OutputDataSize < Win8CapsSize) return STATUS_BUFFER_TOO_SMALL;
         DXGK_DRIVERCAPS* c = (DXGK_DRIVERCAPS*)p->pOutputData;
-        RtlZeroMemory(c, sizeof(*c));
+        RtlZeroMemory(c, min((SIZE_T)p->OutputDataSize, sizeof(*c)));
         c->HighestAcceptableAddress.QuadPart = 0x0000FFFFFFFFFFFFll;   // 48-bit GART PTEs
         c->MaxAllocationListSlotId = KMD_ALLOCLIST_SIZE;
         c->ApertureSegmentCommitLimit = (SIZE_T)Gpu->ApertureSize();
@@ -87,11 +93,11 @@ NTSTATUS APIENTRY KmdQueryAdapterInfo(_In_ CONST HANDLE hAdapter, _In_ CONST DXG
         c->SchedulingCaps.MultiEngineAware = 0;
         c->MemoryManagementCaps.PagingNode = 0;
         c->GpuEngineTopology.NbAsymetricProcessingNodes = Gpu->KmdCpReady() ? 2 : 1;   // 0 = SDMA, 1 = CP graphics
-        c->WDDMVersion = DXGKDDI_WDDMv1_2;
-        c->PreemptionCaps.GraphicsPreemptionGranularity = D3DKMDT_GRAPHICS_PREEMPTION_DMA_BUFFER_BOUNDARY;
-        c->PreemptionCaps.ComputePreemptionGranularity = D3DKMDT_COMPUTE_PREEMPTION_DMA_BUFFER_BOUNDARY;
-        c->SupportNonVGA = TRUE;
-        c->SupportSmoothRotation = FALSE;
+        // Claiming WDDM 1.2 makes dxgkrnl enforce every mandatory 1.2 feature (DirectFlip, offer/reclaim,
+        // preemption...) and refuse the adapter when one is missing (seen on hardware: code 43 right after
+        // this query). Report WDDM 1.1-level caps and none of the 1.2 features.
+        c->WDDMVersion = DXGKDDI_WDDMv1;
+        Bc250Trace(Adapter(hAdapter)->Pdo(), L"KmdCapsReported", c->WDDMVersion);
         return STATUS_SUCCESS;
     }
 
@@ -148,6 +154,25 @@ NTSTATUS APIENTRY KmdQueryAdapterInfo(_In_ CONST HANDLE hAdapter, _In_ CONST DXG
     default:
         return BddDdiQueryAdapterInfo(hAdapter, p);   // display caps extension etc.
     }
+}
+
+static ULONG g_QueryMask, g_QueryMaskHi;
+NTSTATUS APIENTRY KmdQueryAdapterInfo(_In_ CONST HANDLE hAdapter, _In_ CONST DXGKARG_QUERYADAPTERINFO* p)
+{
+    PAGED_CODE();
+    NTSTATUS St = KmdQueryAdapterInfoImpl(hAdapter, p);
+    DEVICE_OBJECT* Pdo = Adapter(hAdapter)->Pdo();
+    ULONG Type = (ULONG)p->Type;
+    if (Type < 32) g_QueryMask |= 1u << Type; else if (Type < 64) g_QueryMaskHi |= 1u << (Type - 32);
+    Bc250Trace(Pdo, L"KmdQueryMask", g_QueryMask);
+    Bc250Trace(Pdo, L"KmdQueryMaskHi", g_QueryMaskHi);
+    if (!NT_SUCCESS(St))
+    {
+        Bc250Trace(Pdo, L"KmdQueryFailType", Type);
+        Bc250Trace(Pdo, L"KmdQueryFailStatus", (ULONG)St);
+        Bc250Trace(Pdo, L"KmdQueryFailSize", p->OutputDataSize);
+    }
+    return St;
 }
 
 // ----------------------------------------------------------------------------------------------
