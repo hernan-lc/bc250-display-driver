@@ -35,11 +35,18 @@ if ($cer) {
   Write-Warning 'No hay .cer en el paquete; si el driver no esta firmado, la instalacion fallara.'
 }
 
-# Test signing
-$bcd = bcdedit.exe /enum '{current}' | Out-String
-if ($bcd -notmatch 'testsigning\s+Yes') {
+# Test signing (SystemStartOptions doesn't depend on the system language)
+$opts = (Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control).SystemStartOptions
+if ($opts -notmatch 'TESTSIGNING') {
   if ($EnableTestSigning) {
+    # BitLocker: changing the BCD can ask for the recovery key. Suspend it for 1 reboot.
+    $bl = Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction SilentlyContinue
+    if ($bl -and $bl.ProtectionStatus -eq 'On') {
+      Suspend-BitLocker -MountPoint $env:SystemDrive -RebootCount 1 | Out-Null
+      Write-Host 'BitLocker suspendido durante 1 reinicio (se reactiva solo).'
+    }
     bcdedit.exe /set testsigning on | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'bcdedit fallo' }
     Write-Warning 'TESTSIGNING activado. Reinicia y vuelve a ejecutar este script.'
     return
   }
