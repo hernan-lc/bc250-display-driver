@@ -11,7 +11,10 @@
 //   bc250ctl sdma-start <sdma.bin>        M4 (dev): upload SDMA0 firmware and start the ring
 //   bc250ctl sdma-test                    M4 (dev): VRAM write, GART write, fence, trap
 //   bc250ctl selftest <sdma.bin>          M2+M3+M4 in order
-//   bc250ctl submit-test                  M5 (dev): CPU-built indirect buffer executed by SDMA, fence\n//   bc250ctl fill-rect x y w h rrggbb     M5 (dev): GPU draws a rectangle into the scanout buffer\n//   bc250ctl stop                         halt SDMA, disable IH
+//   bc250ctl submit-test                  M5 (dev): CPU-built indirect buffer executed by SDMA, fence\n//   bc250ctl fill-rect x y w h rrggbb     M5 (dev): GPU draws a rectangle into the scanout buffer\n//   bc250ctl cp-start <fwdir>             M4b (dev): RLC + CP graphics ring (rlc/pfp/me/ce firmware)
+//   bc250ctl cp-test                      M4b (dev): PM4 SET_UCONFIG_REG + WRITE_DATA
+//   bc250ctl fulltest <fwdir>             M3 + M2 + M4 + M4b in order
+//   bc250ctl stop                         halt SDMA, disable IH
 //   bc250ctl devmode on|off               set DeveloperMode for the adapter (Administrator)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -143,6 +146,7 @@ static int CmdInfo()
     printf("GART            %s  %012llX - %012llX\n", i.GartReady ? "ready" : "off", i.GartStart, i.GartEnd);
     printf("IH              %s  interrupts %llu\n", i.IhReady ? "ready" : "off", i.InterruptCount);
     printf("SDMA0           %s\n", i.SdmaReady ? "running" : "off");
+    printf("CP graphics     %s\n", i.CpReady ? "running" : "off");
     return 0;
 }
 
@@ -156,7 +160,7 @@ static int CmdIhStatus()
     return 0;
 }
 
-static int CmdSdmaStart(const char* Path)
+static int UploadFw(const char* Path, bc_u32 Engine)
 {
     FILE* f = nullptr;
     if (fopen_s(&f, Path, "rb") || !f) { fprintf(stderr, "cannot open %s\n", Path); return 1; }
@@ -170,7 +174,7 @@ static int CmdSdmaStart(const char* Path)
     for (size_t Off = 0; Off < Fw.size(); Off += BC250_FW_CHUNK)
     {
         BC250_ESCAPE* e = NewEsc(BC250_CMD_FW_UPLOAD);
-        e->u.Fw.Engine = BC250_FW_SDMA0;
+        e->u.Fw.Engine = Engine;
         e->u.Fw.TotalSize = (bc_u32)Fw.size();
         e->u.Fw.Offset = (bc_u32)Off;
         e->u.Fw.ChunkSize = (bc_u32)min((size_t)BC250_FW_CHUNK, Fw.size() - Off);
@@ -183,8 +187,44 @@ static int CmdSdmaStart(const char* Path)
         }
         free(e);
     }
+    return 0;
+}
+
+static int CmdSdmaStart(const char* Path)
+{
+    if (UploadFw(Path, BC250_FW_SDMA0)) return 2;
     printf("fw-upload    OK\n");
     return Run(NewEsc(BC250_CMD_SDMA_START), "sdma-start");
+}
+
+static int CmdCpStart(const char* Dir)
+{
+    static const struct { const char* Name; bc_u32 Engine; } Files[] = {
+        { "cyan_skillfish2_rlc.bin", BC250_FW_RLC }, { "cyan_skillfish2_pfp.bin", BC250_FW_PFP },
+        { "cyan_skillfish2_me.bin", BC250_FW_ME },   { "cyan_skillfish2_ce.bin", BC250_FW_CE } };
+    for (const auto& F : Files)
+    {
+        char Path[MAX_PATH];
+        snprintf(Path, sizeof(Path), "%s\\%s", Dir, F.Name);
+        if (UploadFw(Path, F.Engine)) return 2;
+    }
+    printf("fw-upload    OK (RLC, PFP, ME, CE)\n");
+    return Run(NewEsc(BC250_CMD_CP_START), "cp-start");
+}
+
+static int CmdCpTest()
+{
+    BC250_ESCAPE* e = NewEsc(BC250_CMD_CP_TEST);
+    if (!Escape(g_Adapter, *e)) return 1;
+    const BC250_TEST& t = e->u.Test;
+    static const char* Steps[] = { "", "PM4 SET_UCONFIG_REG(SCRATCH_REG0)", "PM4 WRITE_DATA to memory" };
+    if (e->Header.Status == BC250_OK)
+        printf("cp-test      PASSED (%u us)\n", t.ElapsedUs);
+    else
+        printf("cp-test      FAILED at step %u (%s): %s\n", t.Step, t.Step < 3 ? Steps[t.Step] : "?", StatusName(e->Header.Status));
+    printf("  expected %08X observed %08X  rptr %X wptr %X  CP_STAT %08X  VM fault %08X\n",
+           t.Expected, t.Observed, t.Rptr, t.Wptr, t.SdmaStatus, t.FaultStatus);
+    return e->Header.Status == BC250_OK ? 0 : 2;
 }
 
 static int CmdSdmaTest()
@@ -231,7 +271,7 @@ static void Usage()
 {
     puts("bc250ctl info | read <reg> | write <reg> <val> | smu <msg> [arg] | gart-init | ih-init | ih-status\n"
          "         sdma-start <cyan_skillfish2_sdma.bin> | sdma-test | submit-test | fill-rect <x> <y> <w> <h> <rrggbb>\n"
-         "         selftest <sdma.bin> | stop | devmode on|off");
+         "         selftest <sdma.bin> | cp-start <fwdir> | cp-test | fulltest <fwdir> | stop | devmode on|off");
 }
 
 int main(int argc, char** argv)
@@ -248,6 +288,26 @@ int main(int argc, char** argv)
     if (!_stricmp(c, "ih-init")) return Run(NewEsc(BC250_CMD_IH_INIT), "ih-init");
     if (!_stricmp(c, "stop")) return Run(NewEsc(BC250_CMD_STOP_ALL), "stop");
     if (!_stricmp(c, "sdma-test")) return CmdSdmaTest();
+    if (!_stricmp(c, "cp-start") && argc >= 3) return CmdCpStart(argv[2]);
+    if (!_stricmp(c, "cp-test")) return CmdCpTest();
+    if (!_stricmp(c, "fulltest") && argc >= 3)
+    {
+        char Sdma[MAX_PATH];
+        snprintf(Sdma, sizeof(Sdma), "%s\\cyan_skillfish2_sdma.bin", argv[2]);
+        printf("== M3 GART ==\n");
+        if (Run(NewEsc(BC250_CMD_GART_INIT), "gart-init")) return 2;
+        if (Run(NewEsc(BC250_CMD_GART_TEST), "gart-map")) return 2;
+        printf("== M2 IH ==\n");
+        if (Run(NewEsc(BC250_CMD_IH_INIT), "ih-init")) return 2;
+        printf("== M4 SDMA ==\n");
+        if (CmdSdmaStart(Sdma)) return 2;
+        if (CmdSdmaTest()) return 2;
+        printf("== M4b CP (graphics ring) ==\n");
+        if (CmdCpStart(argv[2])) return 2;
+        int r = CmdCpTest();
+        CmdIhStatus();
+        return r;
+    }
     if (!_stricmp(c, "sdma-start") && argc >= 3) return CmdSdmaStart(argv[2]);
     if (!_stricmp(c, "fill-rect") && argc >= 7)
     {

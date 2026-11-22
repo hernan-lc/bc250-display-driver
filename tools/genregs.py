@@ -38,6 +38,15 @@ groups = [
    'SDMA0_GFX_RB_WPTR_POLL_CNTL','SDMA0_GFX_RB_WPTR_POLL_ADDR_LO','SDMA0_GFX_RB_WPTR_POLL_ADDR_HI',
    'SDMA0_GFX_IB_CNTL','SDMA0_GFX_DOORBELL','SDMA0_GFX_MINOR_PTR_UPDATE','SDMA0_UTCL1_CNTL','SDMA0_UTCL1_PAGE',
    'SDMA0_SEM_WAIT_FAIL_TIMER_CNTL','SDMA0_CHICKEN_BITS','SDMA0_GB_ADDR_CONFIG','SDMA0_GB_ADDR_CONFIG_READ',
+   # M4b: RLC + CP graphics
+   'RLC_CNTL','RLC_CGCG_CGLS_CTRL','RLC_PG_CNTL','RLC_GPM_UCODE_ADDR','RLC_GPM_UCODE_DATA','RLC_CSIB_ADDR_HI','RLC_CSIB_ADDR_LO',
+   'RLC_CSIB_LENGTH','GRBM_SOFT_RESET','GRBM_GFX_CNTL','GRBM_GFX_INDEX',
+   'CP_PFP_IC_OP_CNTL','CP_PFP_IC_BASE_CNTL','CP_PFP_IC_BASE_LO','CP_PFP_IC_BASE_HI','CP_HYP_PFP_UCODE_ADDR','CP_HYP_PFP_UCODE_DATA',
+   'CP_CE_IC_OP_CNTL','CP_CE_IC_BASE_CNTL','CP_CE_IC_BASE_LO','CP_CE_IC_BASE_HI','CP_HYP_CE_UCODE_ADDR','CP_HYP_CE_UCODE_DATA',
+   'CP_ME_IC_OP_CNTL','CP_ME_IC_BASE_CNTL','CP_ME_IC_BASE_LO','CP_ME_IC_BASE_HI','CP_HYP_ME_UCODE_ADDR','CP_HYP_ME_UCODE_DATA',
+   'CP_MAX_CONTEXT','CP_DEVICE_ID','CP_RB_WPTR_DELAY','CP_RB_VMID','CP_RB0_CNTL','CP_RB0_WPTR','CP_RB0_WPTR_HI','CP_RB0_RPTR',
+   'CP_RB0_RPTR_ADDR','CP_RB0_RPTR_ADDR_HI','CP_RB_WPTR_POLL_ADDR_LO','CP_RB_WPTR_POLL_ADDR_HI','CP_RB0_BASE','CP_RB0_BASE_HI',
+   'CP_RB_ACTIVE','CP_RB_DOORBELL_CONTROL','CP_RB_WPTR_POLL_CNTL',
  ], [
    'GCMC_VM_FB_LOCATION_BASE__FB_BASE_MASK','GCMC_VM_FB_LOCATION_TOP__FB_TOP_MASK',
    'GCMC_VM_MX_L1_TLB_CNTL__ENABLE_L1_TLB_MASK','GCMC_VM_MX_L1_TLB_CNTL__SYSTEM_ACCESS_MODE__SHIFT',
@@ -60,6 +69,12 @@ groups = [
    'SDMA0_GFX_RB_WPTR_POLL_CNTL__F32_POLL_ENABLE_MASK','SDMA0_GFX_DOORBELL__ENABLE_MASK',
    'SDMA0_UTCL1_CNTL__RESP_MODE__SHIFT','SDMA0_UTCL1_CNTL__RESP_MODE_MASK','SDMA0_UTCL1_CNTL__REDO_DELAY__SHIFT',
    'SDMA0_UTCL1_CNTL__REDO_DELAY_MASK','SDMA0_STATUS_REG__IDLE_MASK',
+   'RLC_CNTL__RLC_ENABLE_F32_MASK','GRBM_SOFT_RESET__SOFT_RESET_RLC_MASK','CP_ME_CNTL__ME_HALT_MASK','CP_ME_CNTL__PFP_HALT_MASK',
+   'CP_ME_CNTL__CE_HALT_MASK','CP_PFP_IC_OP_CNTL__INVALIDATE_CACHE_MASK','CP_PFP_IC_OP_CNTL__INVALIDATE_CACHE_COMPLETE_MASK',
+   'CP_CE_IC_OP_CNTL__INVALIDATE_CACHE_MASK','CP_CE_IC_OP_CNTL__INVALIDATE_CACHE_COMPLETE_MASK',
+   'CP_ME_IC_OP_CNTL__INVALIDATE_CACHE_MASK','CP_ME_IC_OP_CNTL__INVALIDATE_CACHE_COMPLETE_MASK',
+   'CP_PFP_IC_BASE_CNTL__VMID_MASK','CP_PFP_IC_BASE_CNTL__CACHE_POLICY_MASK','CP_PFP_IC_BASE_CNTL__EXE_DISABLE_MASK','CP_PFP_IC_BASE_CNTL__ADDRESS_CLAMP_MASK',
+   'CP_RB0_CNTL__RB_BUFSZ_MASK','CP_RB0_CNTL__RB_BLKSZ_MASK','CP_RB_DOORBELL_CONTROL__DOORBELL_EN_MASK','GRBM_GFX_CNTL__PIPEID_MASK',
  ]),
  ('MMHUB', 'include_asic_reg_mmhub_mmhub_2_0_0_offset.h', None, [
    'MMMC_VM_FB_LOCATION_BASE','MMMC_VM_FB_LOCATION_TOP','MMMC_VM_FB_OFFSET','MMMC_VM_AGP_BOT','MMMC_VM_AGP_TOP',
@@ -85,6 +100,7 @@ lines = ['// Generated from Linux amdgpu register headers (MIT license, Copyrigh
 missing = []
 for ip, off, mask, regs, fields in groups:
     o = load(off); m = load(mask) if mask else {}
+    if ip == 'GC': o.update({k: v for k, v in load('amdgpu_gfx_v10_0.c').items() if k.startswith('mmCP_HYP_')})
     lines.append(f'// ---- {ip} ----')
     for r in regs:
         k = 'mm' + r
@@ -96,5 +112,40 @@ for ip, off, mask, regs, fields in groups:
         if f not in m: missing.append(f); continue
         lines.append(f'#define BC250_{f:<64} 0x{m[f]:X}u')
     lines.append('')
+# ---- GC golden settings for Cyan Skillfish (gfx_v10_0.c) ----
+gco = load('include_asic_reg_gc_gc_10_1_0_offset.h')
+src = open(os.path.join(L, 'amdgpu_gfx_v10_0.c'), encoding='utf-8', errors='replace').read()
+blk = re.search(r'golden_settings_gc_10_0_cyan_skillfish\[\] = \{(.*?)\};', src, re.S).group(1)
+lines.append('// ---- GC golden settings (golden_settings_gc_10_0_cyan_skillfish) : { reg, and_mask, or_mask } ----')
+lines.append('#define BC250_GOLDEN_GC_INIT { \\')
+for m in re.finditer(r'SOC15_REG_GOLDEN_VALUE\(GC,\s*0,\s*mm(\w+),\s*(0x[0-9a-fA-F]+),\s*(0x[0-9a-fA-F]+)\)', blk):
+    r = 'mm' + m.group(1)
+    if r not in gco: missing.append(m.group(1)); continue
+    val = BASES['GC'][gco[r + '_BASE_IDX']] + gco[r]
+    lines.append(f'    {{ 0x{val:05X}u, {m.group(2)}u, {m.group(3)}u }}, /* {m.group(1)} */ \\')
+lines.append('}')
+lines.append('')
+
+# ---- Clear-state buffer (clearstate_gfx10.h, amdgpu_gfx_csb_*), without PA_SC_TILE_STEERING_OVERRIDE ----
+cs = open(os.path.join(L, 'amdgpu_clearstate_gfx10.h'), encoding='utf-8', errors='replace').read()
+cs = re.sub(r'//[^\n]*', '', cs)
+arrays = {}
+for m in re.finditer(r'static const unsigned int (\w+)\[\] =\s*\{(.*?)\};', cs, re.S):
+    arrays[m.group(1)] = [int(x, 0) for x in re.findall(r'0x[0-9a-fA-F]+|\b\d+\b', m.group(2))]
+ext = re.search(r'gfx10_SECT_CONTEXT_defs\[\] =\s*\{(.*?)\};', cs, re.S).group(1)
+def P3(op, n): return (3 << 30) | ((op & 0xFF) << 8) | ((n & 0x3FFF) << 16)
+csb = [P3(0x4A, 0), 2 << 28, P3(0x28, 1), 0x80000000, 0x80000000]
+for m in re.finditer(r'\{\s*(\w+),\s*(0x[0-9a-fA-F]+|\d+),\s*(\d+)\s*\}', ext):
+    if m.group(1) == '0': continue
+    data = arrays[m.group(1)]; idx = int(m.group(2), 0); cnt = int(m.group(3))
+    assert len(data) == cnt, (m.group(1), len(data), cnt)
+    csb += [P3(0x69, cnt), idx - 0xA000] + data[:cnt]
+csb += [P3(0x4A, 0), 3 << 28, P3(0x12, 0), 0]
+lines.append(f'// ---- Clear-state buffer ({len(csb)} dwords) ----')
+lines.append(f'#define BC250_CSB_DWORDS {len(csb)}u')
+lines.append('#define BC250_CSB_INIT { \\')
+for i in range(0, len(csb), 8):
+    lines.append('    ' + ', '.join(f'0x{v:08X}u' for v in csb[i:i+8]) + ', \\')
+lines.append('}')
 open(out, 'w', newline='\n').write('\n'.join(lines))
 print('missing:', missing)

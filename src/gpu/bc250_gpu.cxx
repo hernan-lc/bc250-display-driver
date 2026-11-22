@@ -244,6 +244,11 @@ void BC250_GPU::Stop()
         m_TestPage = NULL;
     }
     if (m_Fw) { ExFreePoolWithTag(m_Fw, BC250_TAG); m_Fw = NULL; m_FwSize = 0; }
+    if (m_CpReady)
+        Rmw(BC250_CP_ME_CNTL, 0, BC250_CP_ME_CNTL__ME_HALT_MASK | BC250_CP_ME_CNTL__PFP_HALT_MASK | BC250_CP_ME_CNTL__CE_HALT_MASK);
+    m_CpReady = FALSE;
+    for (ULONG i = 0; i < BC250_FW_COUNT; ++i)
+        if (m_FwCp[i]) { ExFreePoolWithTag(m_FwCp[i], BC250_TAG); m_FwCp[i] = NULL; m_FwCpSize[i] = 0; }
     if (m_Scratch) { MmUnmapIoSpace((PVOID)m_Scratch, (SIZE_T)BC250_SCRATCH_SIZE); m_Scratch = NULL; }
     if (m_Mmio) { MmUnmapIoSpace((PVOID)m_Mmio, (SIZE_T)m_BarMmio.Length); m_Mmio = NULL; }
     m_GartReady = FALSE;
@@ -359,7 +364,7 @@ VOID BC250_GPU::FillInfo(BC250_INFO* p)
     p->ScratchMc = m_Scratch ? m_ScratchMc : 0;
     p->ScratchSize = m_Scratch ? BC250_SCRATCH_SIZE : 0;
     p->GartStart = m_GartStart; p->GartEnd = m_GartEnd;
-    p->GartReady = m_GartReady; p->IhReady = m_IhReady; p->SdmaReady = m_SdmaReady;
+    p->GartReady = m_GartReady; p->IhReady = m_IhReady; p->SdmaReady = m_SdmaReady; p->CpReady = m_CpReady;
     p->InterruptCount = (ULONGLONG)m_IntCount;
 }
 
@@ -570,19 +575,21 @@ NTSTATUS BC250_GPU::IhInit()
 NTSTATUS BC250_GPU::FwUpload(const BC250_FW* p)
 {
     PAGED_CODE();
-    if (p->Engine != BC250_FW_SDMA0) return STATUS_INVALID_PARAMETER;
+    if (p->Engine >= BC250_FW_COUNT) return STATUS_INVALID_PARAMETER;
     if (p->TotalSize < 64 || p->TotalSize > 1024 * 1024) return STATUS_INVALID_PARAMETER;
     if (p->ChunkSize > BC250_FW_CHUNK || p->Offset > p->TotalSize || p->ChunkSize > p->TotalSize - p->Offset)
         return STATUS_INVALID_PARAMETER;
+    UCHAR** ppBuf = (p->Engine == BC250_FW_SDMA0) ? &m_Fw : &m_FwCp[p->Engine];
+    ULONG*  pSize = (p->Engine == BC250_FW_SDMA0) ? &m_FwSize : &m_FwCpSize[p->Engine];
     if (p->Offset == 0)
     {
-        if (m_Fw) ExFreePoolWithTag(m_Fw, BC250_TAG);
-        m_Fw = (UCHAR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, p->TotalSize, BC250_TAG);
-        if (!m_Fw) { m_FwSize = 0; return STATUS_INSUFFICIENT_RESOURCES; }
-        m_FwSize = p->TotalSize;
+        if (*ppBuf) ExFreePoolWithTag(*ppBuf, BC250_TAG);
+        *ppBuf = (UCHAR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, p->TotalSize, BC250_TAG);
+        if (!*ppBuf) { *pSize = 0; return STATUS_INSUFFICIENT_RESOURCES; }
+        *pSize = p->TotalSize;
     }
-    if (!m_Fw || m_FwSize != p->TotalSize) return STATUS_INVALID_DEVICE_STATE;
-    RtlCopyMemory(m_Fw + p->Offset, p->Data, p->ChunkSize);
+    if (!*ppBuf || *pSize != p->TotalSize) return STATUS_INVALID_DEVICE_STATE;
+    RtlCopyMemory(*ppBuf + p->Offset, p->Data, p->ChunkSize);
     return STATUS_SUCCESS;
 }
 
@@ -1001,6 +1008,8 @@ NTSTATUS BC250_GPU::Escape(VOID* pData, UINT Size)
         break;
     }
     case BC250_CMD_FILL_RECT:   R = ToEsc(FillRect(&e->u.Rect)); break;
+    case BC250_CMD_CP_START:    R = ToEsc(CpStart()); break;
+    case BC250_CMD_CP_TEST:     R = ToEsc(CpTest(&e->u.Test)); break;
     default:
         R = BC250_E_BADCMD;
     }

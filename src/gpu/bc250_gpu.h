@@ -18,7 +18,7 @@
 
 // VRAM scratch window owned by the driver (inside the BAR0 aperture, away from the GOP framebuffer).
 #define BC250_SCRATCH_OFFSET   0x04000000ull   // 64 MiB into VRAM
-#define BC250_SCRATCH_SIZE     0x00400000ull   // 4 MiB
+#define BC250_SCRATCH_SIZE     0x00800000ull   // 8 MiB
 
 #define BC250_SCR_GART_PT      0x000000u   // 512 KiB = 65536 PTEs -> 256 MiB GART
 #define BC250_SCR_IH_RING      0x080000u   // 64 KiB
@@ -29,6 +29,13 @@
 #define BC250_SCR_TEST         0x100000u   // 1 MiB test area
 #define BC250_SCR_IB           0x200000u   // 1 MiB indirect buffers (M5)
 #define BC250_SCR_FENCE        (BC250_SCR_WB + 0x200u)
+#define BC250_SCR_CP_PFP       0x400000u   // 320 KiB each, 4 KiB aligned (M4b)
+#define BC250_SCR_CP_CE        0x450000u
+#define BC250_SCR_CP_ME        0x4A0000u
+#define BC250_SCR_CSB          0x4F0000u   // clear-state buffer
+#define BC250_SCR_CP_RING      0x500000u   // 64 KiB graphics ring 0
+#define BC250_SCR_CP_WB        0x510000u   // rptr writeback (+0), wptr poll (+8), WRITE_DATA test (+0x100)
+#define BC250_CP_RING_SIZE     0x10000u
 
 #define BC250_GART_SIZE        0x10000000ull   // 256 MiB
 #define BC250_GART_RESERVED    0x00100000ull   // first 1 MiB of GART kept for the driver (test page)
@@ -100,6 +107,12 @@ private:
 
     // --- M4 ---
     NTSTATUS FwUpload(_In_ const BC250_FW* pFw);
+    // --- M4b: RLC + CP graphics ---
+    NTSTATUS CpStart();
+    NTSTATUS CpLoadIc(ULONG Engine, ULONG ScrOff, ULONG OpCntl, ULONG BaseCntl, ULONG BaseLo, ULONG BaseHi, ULONG UcodeAddr, ULONG UcodeData);
+    VOID     CpWrite(ULONG Dw);
+    VOID     CpCommit();
+    NTSTATUS CpTest(_Out_ BC250_TEST* pTest);
     NTSTATUS SdmaStart();
     VOID     SdmaHalt();
     VOID     SdmaWrite(ULONG Dw);
@@ -146,7 +159,11 @@ private:
     NTSTATUS  LoadFirmwareFile(_In_ PCWSTR Path);
 
     // SDMA
-    UCHAR*    m_Fw;
+    UCHAR*    m_Fw;                     // SDMA0
     ULONG     m_FwSize;
+    UCHAR*    m_FwCp[BC250_FW_COUNT];   // RLC, PFP, ME, CE (index = BC250_FW_*)
+    ULONG     m_FwCpSize[BC250_FW_COUNT];
+    BOOLEAN   m_CpReady;
+    ULONG     m_CpWptr;                 // dwords
     ULONG     m_SdmaWptr;               // in dwords
 };

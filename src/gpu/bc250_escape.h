@@ -28,7 +28,9 @@ enum BC250_CMD {
     BC250_CMD_STOP_ALL       = 12,  // DEV: halt SDMA, disable IH (GART stays, it is harmless)
     BC250_CMD_VRAM_READ      = 13,  // DEV: read dwords from the driver's VRAM scratch window
     BC250_CMD_SUBMIT_IB      = 14,  // M5 DEV: run a user SDMA indirect buffer, wait for its fence
-    BC250_CMD_FILL_RECT      = 15,  // M5 DEV: GPU (SDMA CONSTANT_FILL) draws a rectangle into the scanout buffer
+    BC250_CMD_FILL_RECT      = 15,
+    BC250_CMD_CP_START       = 16,  // M4b DEV: RLC + CP (PFP/ME/CE) direct load, graphics ring 0, clear state
+    BC250_CMD_CP_TEST        = 17,  // M4b DEV: PM4 SET_UCONFIG_REG(SCRATCH_REG0) + WRITE_DATA to memory  // M5 DEV: GPU (SDMA CONSTANT_FILL) draws a rectangle into the scanout buffer
 };
 
 // Status codes returned in BC250_ESC_HEADER::Status (0 = OK, negative = error)
@@ -44,6 +46,11 @@ enum BC250_CMD {
 #define BC250_E_VERIFY        -9   // the GPU did not produce the expected result
 
 #define BC250_FW_SDMA0        0u
+#define BC250_FW_RLC          1u
+#define BC250_FW_PFP          2u
+#define BC250_FW_ME           3u
+#define BC250_FW_CE           4u
+#define BC250_FW_COUNT        5u
 #define BC250_FW_CHUNK        4096u
 
 #pragma pack(push, 8)
@@ -80,7 +87,7 @@ typedef struct BC250_INFO {
     bc_u64 ScratchMc;        // GPU address of the driver's VRAM scratch window (0 = none)
     bc_u64 ScratchSize;
     bc_u64 GartStart, GartEnd;
-    bc_u32 GartReady, IhReady, SdmaReady, Reserved0;
+    bc_u32 GartReady, IhReady, SdmaReady, CpReady;
     bc_u64 InterruptCount;
     bc_u64 FramebufferPhys;  // POST/GOP framebuffer
     bc_u32 FramebufferSize;

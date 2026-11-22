@@ -108,6 +108,7 @@
     <ClCompile Include="src\blthw.cxx" />
     <ClCompile Include="src\memory.cxx" />
     <ClCompile Include="src\gpu\bc250_gpu.cxx" />
+    <ClCompile Include="src\gpu\bc250_gpu_cp.cxx" />
     <ResourceCompile Include="src\bc250display.rc" />
   </ItemGroup>
   <ItemGroup>
