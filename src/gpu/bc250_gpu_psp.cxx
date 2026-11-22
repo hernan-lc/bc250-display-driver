@@ -170,7 +170,20 @@ NTSTATUS BC250_GPU::PspLoadAll(BC250_TEST* t)
     if (m_SdmaReady) SdmaHalt();
     Rmw(BC250_SDMA0_F32_CNTL, 0, BC250_SDMA0_F32_CNTL__HALT_MASK);
     Rmw(BC250_CP_ME_CNTL, 0, BC250_CP_ME_CNTL__ME_HALT_MASK | BC250_CP_ME_CNTL__PFP_HALT_MASK | BC250_CP_ME_CNTL__CE_HALT_MASK);
+    Rmw(BC250_RLC_CNTL, BC250_RLC_CNTL__RLC_ENABLE_F32_MASK, 0);
     m_CpReady = FALSE;
+
+    // CP/RLC may have been started earlier with unusable microcode: soft-reset them before the PSP
+    // programs their instruction caches (gfx_v10_0_soft_reset: CP, CPF, CPC, CPG, GFX, RLC).
+    {
+        const ULONG Reset = 0x00000001u | 0x00000004u | 0x00010000u | 0x00020000u | 0x00040000u | 0x00080000u;
+        Rmw(BC250_GRBM_SOFT_RESET, 0, Reset);
+        (void)Rreg(BC250_GRBM_SOFT_RESET);
+        KeStallExecutionProcessor(50);
+        Rmw(BC250_GRBM_SOFT_RESET, Reset, 0);
+        (void)Rreg(BC250_GRBM_SOFT_RESET);
+        KeStallExecutionProcessor(50);
+    }
 
     // amdgpu ucode order: SDMA0, CP_CE, CP_PFP, CP_ME, RLC_G
     t->Step = 2; if (m_Fw && !NT_SUCCESS(St = PspLoadFw(BC250_FW_SDMA0, GFX_FW_TYPE_SDMA0))) goto out;
