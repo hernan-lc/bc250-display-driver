@@ -10,10 +10,29 @@ Register offsets and init sequences are taken from the Linux `amdgpu` driver (MI
 
 ## Status
 
-| Milestone | State | Default |
+| Milestone | Code | Tested on hardware |
 |---|---|---|
-| Display-only on the UEFI GOP framebuffer | ✅ tested on hardware (1920×1080) | on |
-| See [docs/ROADMAP.md](docs/ROADMAP.md) for M1–M6 | | |
+| Display-only on the UEFI GOP framebuffer | ✅ | ✅ 1920×1080 |
+| M1 registers, SMU, memory layout (`bc250ctl info`) | ✅ | not yet |
+| M2 interrupts (IH ring) | ✅ | not yet |
+| M3 GPU memory (GCVM + GART) | ✅ | not yet |
+| M4 SDMA engine (firmware load, ring, fences) | ✅ | not yet |
+| M5a command submission + GPU fill into the screen | ✅ | not yet |
+| M5b full WDDM render driver, M6b Mesa RADV (Vulkan) | design only | — |
+
+Details, test sequence and risks: [docs/ROADMAP.md](docs/ROADMAP.md).
+
+### Layout
+
+| Path | What |
+|---|---|
+| `src/` | KMDOD-based WDDM driver (`BC250Display.sys`) |
+| `src/gpu/` | BC-250 hardware layer (M1–M5a) and the escape protocol |
+| `tools/bc250ctl/` | control and test tool |
+| `umd/libbc250/` | header-only user-mode API (winsys prototype) |
+| `umd/bc250demo/` | UMD-style client: builds and submits command buffers |
+| `tools/genregs.py` | regenerates `src/gpu/bc250_regs.h` from Linux amdgpu headers |
+| `scripts/get-firmware.ps1` | downloads `cyan_skillfish2_*.bin` from linux-firmware |
 
 Things that are **not** supported: suspend S3/S4 (the installer disables sleep), hardware mode changes,
 multiple monitors.

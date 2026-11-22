@@ -4,3 +4,4 @@ out/
 tools/nuget.exe
 *.user
 .vs/
+firmware/
