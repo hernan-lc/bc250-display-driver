@@ -9,6 +9,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "bc250ctl", "tools\bc250ctl\
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "bc250demo", "umd\bc250demo\bc250demo.vcxproj", "{3F7A9E21-250D-4E6B-8A90-BC250DE30001}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BC250Kmd", "BC250Kmd.vcxproj", "{A1C2E3F4-250E-4D5C-B6A7-BC250E000001}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -27,5 +29,9 @@ Global
 		{3F7A9E21-250D-4E6B-8A90-BC250DE30001}.Debug|x64.Build.0 = Debug|x64
 		{3F7A9E21-250D-4E6B-8A90-BC250DE30001}.Release|x64.ActiveCfg = Release|x64
 		{3F7A9E21-250D-4E6B-8A90-BC250DE30001}.Release|x64.Build.0 = Release|x64
+		{A1C2E3F4-250E-4D5C-B6A7-BC250E000001}.Debug|x64.ActiveCfg = Debug|x64
+		{A1C2E3F4-250E-4D5C-B6A7-BC250E000001}.Debug|x64.Build.0 = Debug|x64
+		{A1C2E3F4-250E-4D5C-B6A7-BC250E000001}.Release|x64.ActiveCfg = Release|x64
+		{A1C2E3F4-250E-4D5C-B6A7-BC250E000001}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 EndGlobal

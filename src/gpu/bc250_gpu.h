@@ -31,6 +31,9 @@
 #define BC250_SCR_FENCE        (BC250_SCR_WB + 0x200u)
 
 #define BC250_GART_SIZE        0x10000000ull   // 256 MiB
+#define BC250_GART_RESERVED    0x00100000ull   // first 1 MiB of GART kept for the driver (test page)
+#define BC250_KMD_VRAM_OFFSET  0x08000000ull   // BC250Kmd VRAM segment starts at 128 MiB
+#define BC250_SDMA_FW_PATH     L"\\SystemRoot\\System32\\drivers\\bc250\\cyan_skillfish2_sdma.bin"
 #define BC250_IH_RING_SIZE     0x10000u
 #define BC250_SDMA_RING_SIZE   0x10000u
 
@@ -50,6 +53,23 @@ public:
 
     NTSTATUS Escape(_Inout_updates_bytes_(Size) VOID* pData, _In_ UINT Size);   // PASSIVE_LEVEL
     BOOLEAN  Isr();  // DIRQL
+
+    // --- M5b: services for the full WDDM driver (BC250Kmd) ---
+    NTSTATUS  KmdBringUp();                      // PASSIVE: GART + IH + SDMA (firmware from disk)
+    VOID      KmdHalt();                         // PASSIVE: TDR reset
+    NTSTATUS  KmdRestart();                      // PASSIVE: TDR restart
+    ULONGLONG VramSegmentMc() const   { return m_FbStart + BC250_KMD_VRAM_OFFSET; }
+    ULONGLONG VramSegmentCpu() const  { return m_BarVram.PhysAddr + BC250_KMD_VRAM_OFFSET; }
+    ULONGLONG VramSegmentSize() const;
+    ULONGLONG ApertureBase() const    { return m_GartStart + BC250_GART_RESERVED; }
+    ULONGLONG ApertureSize() const    { return BC250_GART_SIZE - BC250_GART_RESERVED; }
+    ULONGLONG ScanoutMc() const;
+    ULONG     ScanoutPitch() const    { return m_FbPitch; }
+    VOID      GartMapPages(ULONGLONG GpuAddr, _In_reads_(Count) const PFN_NUMBER* Pfns, SIZE_T Count);  // <= DISPATCH
+    VOID      GartUnmapPages(ULONGLONG GpuAddr, SIZE_T Count);                                         // <= DISPATCH
+    VOID      KmdSubmit(ULONGLONG IbMc, ULONG Dwords, ULONG FenceId);   // any IRQL; dxgkrnl serializes submissions
+    ULONG     KmdCompletedFence() const { return m_Scratch ? ScrRead(BC250_SCR_FENCE) : 0; }
+    BOOLEAN   KmdWaitIdle(ULONG TimeoutUs);      // PASSIVE
 
 private:
     // --- M1 ---
@@ -121,6 +141,9 @@ private:
     ULONG              m_IhRptr;
     volatile LONG64    m_IntCount, m_IhEntries, m_SdmaTraps;
     volatile LONG      m_LastClient, m_LastSrc, m_LastSrcData, m_IhOverflow;
+
+    BOOLEAN   m_KmdMode;                // full WDDM driver: notify dxgkrnl from the ISR
+    NTSTATUS  LoadFirmwareFile(_In_ PCWSTR Path);
 
     // SDMA
     UCHAR*    m_Fw;

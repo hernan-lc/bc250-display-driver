@@ -10,6 +10,7 @@
 #include "BDD.hxx"
 
 
+#ifndef BC250_KMD   // BC250Kmd.sys has its own DriverEntry (src/kmd/bc250_kmd.cxx)
 #pragma code_seg(push)
 #pragma code_seg("INIT")
 // BEGIN: Init Code
@@ -74,6 +75,7 @@ DriverEntry(
 }
 // END: Init Code
 #pragma code_seg(pop)
+#endif // BC250_KMD
 
 #pragma code_seg(push)
 #pragma code_seg("PAGE")

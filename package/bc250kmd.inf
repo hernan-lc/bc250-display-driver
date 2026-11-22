@@ -1,0 +1,60 @@
+;
+; BC250Kmd.inf
+; EXPERIMENTAL full WDDM driver for the AMD BC-250 (Cyan Skillfish APU): display + SDMA render path.
+; Ranked below BC250Display.inf so it is never picked automatically; install it explicitly with
+; scripts\install-kmd.ps1. Needs cyan_skillfish2_sdma.bin in %SystemRoot%\System32\drivers\bc250\.
+;
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = Display
+ClassGUID   = {4d36e968-e325-11ce-bfc1-08002be10318}
+Provider    = %ProviderString%
+DriverVer   = 11/01/2026,0.2.0.0
+CatalogFile = BC250Kmd.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+BC250Kmd.Files = 13
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+BC250Kmd.sys = 1
+
+[Manufacturer]
+%ManufacturerName% = BC250Kmd, NTamd64.10.0...16299
+
+[BC250Kmd.NTamd64.10.0...16299]
+%DeviceName% = BC250Kmd_Inst, PCI\VEN_1002&DEV_13FE
+%DeviceName% = BC250Kmd_Inst, PCI\VEN_1002&DEV_143F
+
+[BC250Kmd_Inst]
+FeatureScore = FA
+CopyFiles    = BC250Kmd.Files
+
+[BC250Kmd_Inst.Services]
+AddService = BC250Kmd, 0x00000002, BC250Kmd_Service_Inst, BC250Kmd_EventLog_Inst
+
+[BC250Kmd_Service_Inst]
+ServiceType   = 1               ; SERVICE_KERNEL_DRIVER
+StartType     = 3               ; SERVICE_DEMAND_START
+ErrorControl  = 0               ; SERVICE_ERROR_IGNORE
+ServiceBinary = %13%\BC250Kmd.sys
+
+[BC250Kmd.Files]
+BC250Kmd.sys
+
+[BC250Kmd_EventLog_Inst]
+AddReg = BC250Kmd_EventLog_Inst.AddReg
+
+[BC250Kmd_EventLog_Inst.AddReg]
+HKR,,EventMessageFile,0x00020000,"%%SystemRoot%%\System32\IoLogMsg.dll"
+HKR,,TypesSupported,0x00010001,7
+
+[Strings]
+ProviderString   = "BC-250 Community"
+ManufacturerName = "AMD (community driver)"
+DiskName         = "BC-250 Render Driver Disk"
+DeviceName       = "AMD BC-250 (experimental WDDM render driver)"

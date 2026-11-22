@@ -95,7 +95,77 @@ BOOLEAN BC250_GPU::Isr()
     }
     Wreg(BC250_IH_RB_RPTR, m_IhRptr);
     InterlockedIncrement64(&m_IntCount);
+
+    if (m_KmdMode)
+    {
+        // every SDMA submission ends with FENCE(SubmissionFenceId) + TRAP
+        DXGKARGCB_NOTIFY_INTERRUPT_DATA d;
+        RtlZeroMemory(&d, sizeof(d));
+        d.InterruptType = DXGK_INTERRUPT_DMA_COMPLETED;
+        d.DmaCompleted.SubmissionFenceId = ScrRead(BC250_SCR_FENCE);
+        d.DmaCompleted.NodeOrdinal = 0;
+        d.DmaCompleted.EngineOrdinal = 0;
+        m_Dxgk.DxgkCbNotifyInterrupt(m_Dxgk.DeviceHandle, &d);
+        m_Dxgk.DxgkCbQueueDpc(m_Dxgk.DeviceHandle);
+    }
     return TRUE;
+}
+
+VOID BC250_GPU::GartMapPages(ULONGLONG GpuAddr, const PFN_NUMBER* Pfns, SIZE_T Count)
+{
+    ULONGLONG First = (GpuAddr - m_GartStart) >> 12;
+    for (SIZE_T i = 0; i < Count && First + i < (BC250_GART_SIZE >> 12); ++i)
+    {
+        ULONGLONG Pte = (((ULONGLONG)Pfns[i] << 12) & 0x0000FFFFFFFFF000ull) |
+                        (1ull << 0) | (1ull << 1) | (1ull << 2) | (1ull << 4) | (1ull << 5) | (1ull << 6) | (3ull << 48);
+        ULONG Off = BC250_SCR_GART_PT + (ULONG)((First + i) * 8);
+        ScrWrite(Off, (ULONG)Pte);
+        ScrWrite(Off + 4, (ULONG)(Pte >> 32));
+    }
+    HdpFlush();
+    // TLB invalidate (VMID0)
+    Wreg(BC250_GCVM_INVALIDATE_ENG17_REQ, 1u | BC250_GCVM_INVALIDATE_ENG17_REQ__INVALIDATE_L2_PTES_MASK |
+         BC250_GCVM_INVALIDATE_ENG17_REQ__INVALIDATE_L2_PDE0_MASK | BC250_GCVM_INVALIDATE_ENG17_REQ__INVALIDATE_L1_PTES_MASK);
+    for (ULONG i = 0; i < 10000 && !(Rreg(BC250_GCVM_INVALIDATE_ENG17_ACK) & 1u); ++i) KeStallExecutionProcessor(1);
+}
+
+VOID BC250_GPU::GartUnmapPages(ULONGLONG GpuAddr, SIZE_T Count)
+{
+    ULONGLONG First = (GpuAddr - m_GartStart) >> 12;
+    for (SIZE_T i = 0; i < Count && First + i < (BC250_GART_SIZE >> 12); ++i)
+    {
+        ULONG Off = BC250_SCR_GART_PT + (ULONG)((First + i) * 8);
+        ScrWrite(Off, 0);
+        ScrWrite(Off + 4, 0);
+    }
+    HdpFlush();
+    Wreg(BC250_GCVM_INVALIDATE_ENG17_REQ, 1u | BC250_GCVM_INVALIDATE_ENG17_REQ__INVALIDATE_L2_PTES_MASK |
+         BC250_GCVM_INVALIDATE_ENG17_REQ__INVALIDATE_L2_PDE0_MASK | BC250_GCVM_INVALIDATE_ENG17_REQ__INVALIDATE_L1_PTES_MASK);
+    for (ULONG i = 0; i < 10000 && !(Rreg(BC250_GCVM_INVALIDATE_ENG17_ACK) & 1u); ++i) KeStallExecutionProcessor(1);
+}
+
+VOID BC250_GPU::KmdSubmit(ULONGLONG IbMc, ULONG Dwords, ULONG FenceId)
+{
+    if (!m_SdmaReady) return;
+    if (Dwords)
+    {
+        ULONG Nops = (2 - (m_SdmaWptr & 7)) & 7;
+        for (ULONG i = 0; i < Nops; ++i) SdmaWrite(0);
+        SdmaWrite(4u);                                   // SDMA_OP_INDIRECT, VMID 0
+        SdmaWrite((ULONG)IbMc & 0xFFFFFFE0);
+        SdmaWrite((ULONG)(IbMc >> 32));
+        SdmaWrite(Dwords);
+        SdmaWrite(0);
+        SdmaWrite(0);
+    }
+    ULONGLONG F = ScrMc(BC250_SCR_FENCE);
+    SdmaWrite(5u);                                       // SDMA_OP_FENCE
+    SdmaWrite((ULONG)F);
+    SdmaWrite((ULONG)(F >> 32));
+    SdmaWrite(FenceId);
+    SdmaWrite(6u);                                       // SDMA_OP_TRAP
+    SdmaWrite(0);
+    SdmaCommit();
 }
 #pragma code_seg(pop)
 
@@ -234,19 +304,23 @@ NTSTATUS BC250_GPU::SmuSend(ULONG Msg, ULONG Arg, bc_u32* pResp, bc_u32* pOut)
     return (Resp == PPSMC_Result_OK) ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
 
+#pragma code_seg(push)
+#pragma code_seg()
 VOID BC250_GPU::HdpFlush()
 {
-    PAGED_CODE();
     Wreg(BC250_BIF_BX_PF_HDP_MEM_COHERENCY_FLUSH_CNTL, 0);
     (void)Rreg(BC250_BIF_BX_PF_HDP_MEM_COHERENCY_FLUSH_CNTL);
 }
+#pragma code_seg(pop)
 
+#pragma code_seg(push)
+#pragma code_seg()
 VOID BC250_GPU::HdpInvalidate()
 {
-    PAGED_CODE();
     Wreg(BC250_HDP_READ_CACHE_INVALIDATE, 1);
     (void)Rreg(BC250_HDP_READ_CACHE_INVALIDATE);
 }
+#pragma code_seg(pop)
 
 VOID BC250_GPU::FillInfo(BC250_INFO* p)
 {
@@ -605,21 +679,25 @@ NTSTATUS BC250_GPU::SdmaStart()
     return STATUS_SUCCESS;
 }
 
+#pragma code_seg(push)
+#pragma code_seg()
 VOID BC250_GPU::SdmaWrite(ULONG Dw)
 {
-    PAGED_CODE();
     ScrWrite(BC250_SCR_SDMA_RING + (m_SdmaWptr % (BC250_SDMA_RING_SIZE / 4)) * 4, Dw);
     ++m_SdmaWptr;
 }
+#pragma code_seg(pop)
 
+#pragma code_seg(push)
+#pragma code_seg()
 VOID BC250_GPU::SdmaCommit()
 {
-    PAGED_CODE();
     HdpFlush();
     ULONGLONG Bytes = (ULONGLONG)m_SdmaWptr * 4;   // wptr is a byte offset, wraps with RB_SIZE
     Wreg(BC250_SDMA0_GFX_RB_WPTR, (ULONG)Bytes);
     Wreg(BC250_SDMA0_GFX_RB_WPTR_HI, (ULONG)(Bytes >> 32));
 }
+#pragma code_seg(pop)
 
 BOOLEAN BC250_GPU::WaitScratch(ULONG Off, ULONG Expect, ULONG TimeoutUs, bc_u32* pSeen)
 {
@@ -929,4 +1007,100 @@ NTSTATUS BC250_GPU::Escape(VOID* pData, UINT Size)
     ExReleaseFastMutex(&m_Lock);
     e->Header.Status = R;
     return STATUS_SUCCESS;
+}
+
+// ----------------------------------------------------------------------------------------------
+// M5b: services for BC250Kmd (full WDDM driver). PASSIVE_LEVEL unless noted.
+// ----------------------------------------------------------------------------------------------
+
+NTSTATUS BC250_GPU::LoadFirmwareFile(PCWSTR Path)
+{
+    PAGED_CODE();
+    UNICODE_STRING Name;
+    RtlInitUnicodeString(&Name, Path);
+    OBJECT_ATTRIBUTES Oa;
+    InitializeObjectAttributes(&Oa, &Name, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
+    IO_STATUS_BLOCK Io;
+    HANDLE h = NULL;
+    NTSTATUS St = ZwCreateFile(&h, GENERIC_READ | SYNCHRONIZE, &Oa, &Io, NULL, FILE_ATTRIBUTE_NORMAL, FILE_SHARE_READ,
+                               FILE_OPEN, FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE, NULL, 0);
+    if (!NT_SUCCESS(St)) return St;
+    FILE_STANDARD_INFORMATION Fsi;
+    St = ZwQueryInformationFile(h, &Io, &Fsi, sizeof(Fsi), FileStandardInformation);
+    if (NT_SUCCESS(St) && (Fsi.EndOfFile.QuadPart < 64 || Fsi.EndOfFile.QuadPart > 1024 * 1024)) St = STATUS_INVALID_IMAGE_FORMAT;
+    if (NT_SUCCESS(St))
+    {
+        ULONG Size = (ULONG)Fsi.EndOfFile.QuadPart;
+        UCHAR* Buf = (UCHAR*)ExAllocatePool2(POOL_FLAG_NON_PAGED, Size, BC250_TAG);
+        if (!Buf) St = STATUS_INSUFFICIENT_RESOURCES;
+        else
+        {
+            LARGE_INTEGER Off; Off.QuadPart = 0;
+            St = ZwReadFile(h, NULL, NULL, NULL, &Io, Buf, Size, &Off, NULL);
+            if (NT_SUCCESS(St) && Io.Information == Size)
+            {
+                if (m_Fw) ExFreePoolWithTag(m_Fw, BC250_TAG);
+                m_Fw = Buf; m_FwSize = Size;
+            }
+            else { ExFreePoolWithTag(Buf, BC250_TAG); if (NT_SUCCESS(St)) St = STATUS_END_OF_FILE; }
+        }
+    }
+    ZwClose(h);
+    return St;
+}
+
+ULONGLONG BC250_GPU::VramSegmentSize() const
+{
+    PAGED_CODE();
+    ULONGLONG End = m_BarVram.Length;
+    if (m_VramSizeMb && ((ULONGLONG)m_VramSizeMb << 20) < End) End = (ULONGLONG)m_VramSizeMb << 20;
+    return End > BC250_KMD_VRAM_OFFSET ? (End - BC250_KMD_VRAM_OFFSET) & ~0xFFFFull : 0;
+}
+
+ULONGLONG BC250_GPU::ScanoutMc() const
+{
+    PAGED_CODE();
+    if ((ULONGLONG)m_FbPhys.QuadPart < m_BarVram.PhysAddr) return 0;
+    return m_FbStart + ((ULONGLONG)m_FbPhys.QuadPart - m_BarVram.PhysAddr);
+}
+
+NTSTATUS BC250_GPU::KmdBringUp()
+{
+    PAGED_CODE();
+    if (!m_Mmio) return STATUS_DEVICE_NOT_READY;
+    NTSTATUS St = LoadFirmwareFile(BC250_SDMA_FW_PATH);   // outside the lock: file I/O at PASSIVE
+    if (!NT_SUCCESS(St)) return St;
+    ExAcquireFastMutex(&m_Lock);
+    St = GartInit();
+    if (NT_SUCCESS(St)) St = IhInit();
+    if (NT_SUCCESS(St)) St = SdmaStart();
+    if (NT_SUCCESS(St)) { ScrWrite(BC250_SCR_FENCE, 0); HdpFlush(); m_KmdMode = TRUE; }
+    ExReleaseFastMutex(&m_Lock);
+    if (NT_SUCCESS(St) && !VramSegmentSize()) St = STATUS_INSUFFICIENT_RESOURCES;
+    return St;
+}
+
+VOID BC250_GPU::KmdHalt()
+{
+    PAGED_CODE();
+    if (m_SdmaReady) SdmaHalt();
+}
+
+NTSTATUS BC250_GPU::KmdRestart()
+{
+    PAGED_CODE();
+    return SdmaStart();   // reloads microcode (still in memory) and resets the ring
+}
+
+BOOLEAN BC250_GPU::KmdWaitIdle(ULONG TimeoutUs)
+{
+    PAGED_CODE();
+    for (ULONG i = 0; i < TimeoutUs; ++i)
+    {
+        if (Rreg(BC250_SDMA0_GFX_RB_RPTR) == Rreg(BC250_SDMA0_GFX_RB_WPTR) &&
+            (Rreg(BC250_SDMA0_STATUS_REG) & BC250_SDMA0_STATUS_REG__IDLE_MASK))
+            return TRUE;
+        KeStallExecutionProcessor(1);
+    }
+    return FALSE;
 }

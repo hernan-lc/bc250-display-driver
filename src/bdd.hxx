@@ -240,6 +240,7 @@ public:
         return (SourceId < MAX_VIEWS)?&m_CurrentModes[SourceId]:NULL;
     }
     const DXGKRNL_INTERFACE* GetDxgkInterface() const { return &m_DxgkInterface;}
+    BC250_GPU* Gpu() { return &m_Gpu; }
 
     // Not implemented since no IOCTLs currently handled.
     NTSTATUS DispatchIoRequest(_In_  ULONG                 VidPnSourceId,
