@@ -23,9 +23,9 @@ BC250.Files = 13
 BC250Display.sys = 1
 
 [Manufacturer]
-%ManufacturerName% = BC250, NTamd64.10.0
+%ManufacturerName% = BC250, NTamd64.10.0...16299
 
-[BC250.NTamd64.10.0]
+[BC250.NTamd64.10.0...16299]
 %DeviceName% = BC250_Inst, PCI\VEN_1002&DEV_13FE
 %DeviceName% = BC250_Inst, PCI\VEN_1002&DEV_143F
 
